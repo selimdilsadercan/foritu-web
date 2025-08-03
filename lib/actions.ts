@@ -288,10 +288,21 @@ export async function StorePlan(userId: string, planJson: PlanCourse[][]): Promi
     // Create API client for staging environment
     const client = new Client(Environment('staging'));
     
+    // Transform PlanCourse[][] to the expected Course[][] format
+    const transformedPlan = planJson.map(semester =>
+      semester.map(item => ({
+        type: item.type,
+        code: item.code,
+        name: item.name || '',           // Provide default empty string
+        category: item.category || '',   // Provide default empty string
+        options: item.options || []      // Provide default empty array
+      }))
+    );
+    
     // Prepare request payload
     const request = {
       userId: userId,
-      planJson: planJson
+      planJson: transformedPlan
     };
     
     console.log('Server: Sending request to store plan...');
