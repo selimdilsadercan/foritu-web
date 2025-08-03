@@ -10,6 +10,23 @@ interface TranscriptItem {
   grade: string;
 }
 
+interface PrerequisiteCourse {
+  code: string;
+  min: string;
+}
+
+interface PrerequisiteGroup {
+  group: number;
+  courses: PrerequisiteCourse[];
+}
+
+interface CourseInfo {
+  code: string;
+  name: string;
+  credits?: string;
+  prerequisites?: PrerequisiteGroup[];
+}
+
 interface CoursePopupProps {
   isOpen: boolean;
   onClose: () => void;
@@ -18,10 +35,16 @@ interface CoursePopupProps {
   transcript: TranscriptItem[];
   isElective?: boolean;
   plan?: any[][];
+  hasWarningIcon?: boolean;
 }
 
-export default function CoursePopup({ isOpen, onClose, courseCode, courseName: providedCourseName, transcript, isElective = false, plan = [] }: CoursePopupProps) {
+export default function CoursePopup({ isOpen, onClose, courseCode, courseName: providedCourseName, transcript, isElective = false, plan = [], hasWarningIcon = false }: CoursePopupProps) {
   const [selectedElectiveCourse, setSelectedElectiveCourse] = useState<string>('');
+  const [coursesData, setCoursesData] = useState<CourseInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  
+  // Parse courseCode to handle matched courses (format: "PLANCODE|MATCHEDCODE")
+  const [planCourseCode, matchedCourseCode] = courseCode.includes('|') ? courseCode.split('|') : [courseCode, null];
   
   const getGradeColor = (grade: string) => {
     if (!grade || grade === '') return 'text-gray-400';
@@ -69,6 +92,83 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
       document.body.style.overflow = 'unset';
     };
   }, [isOpen, onClose]);
+
+  // Load courses data from JSON file
+  useEffect(() => {
+    const loadCoursesData = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch('/courses.json');
+        const data = await response.json();
+        setCoursesData(data);
+      } catch (error) {
+        console.error('Error loading courses data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (isOpen) {
+      loadCoursesData();
+    }
+  }, [isOpen]);
+
+  // Function to get course name from courses.json
+  const getCourseNameFromData = (code: string): string | undefined => {
+    const course = coursesData.find(c => c.code === code);
+    return course?.name;
+  };
+
+  // Function to get prerequisites for a course
+  const getPrerequisites = (code: string): PrerequisiteGroup[] | undefined => {
+    const course = coursesData.find(c => c.code === code);
+    return course?.prerequisites;
+  };
+
+  // Function to normalize course codes (remove spaces for comparison)
+  const normalizeCourseCode = (code: string): string => {
+    return code.replace(/\s+/g, '');
+  };
+
+  // Function to check if a prerequisite is satisfied
+  const isPrerequisiteSatisfied = (prereqCode: string, minGrade: string): boolean => {
+    const normalizedPrereqCode = normalizeCourseCode(prereqCode);
+    const courseHistory = transcript.filter(t => normalizeCourseCode(t.code) === normalizedPrereqCode);
+    if (courseHistory.length === 0) return false;
+    
+    const latestGrade = courseHistory[courseHistory.length - 1].grade;
+    if (latestGrade === '--') return false; // Currently taken
+    
+    // Grade comparison logic - based on your transcript grades
+    const gradeOrder = ['FF', 'FD', 'VF', 'DD', 'DD+', 'DC', 'DC+', 'CC', 'CC+', 'CB', 'CB+', 'BB', 'BB+', 'BA', 'BA+', 'AA', 'BL'];
+    const latestGradeIndex = gradeOrder.indexOf(latestGrade);
+    const minGradeIndex = gradeOrder.indexOf(minGrade);
+    
+    return latestGradeIndex >= minGradeIndex;
+  };
+
+  // Function to check if a prerequisite group is satisfied (at least one course in group)
+  const isPrerequisiteGroupSatisfied = (group: PrerequisiteGroup): boolean => {
+    return group.courses.some(prereq => isPrerequisiteSatisfied(prereq.code, prereq.min));
+  };
+
+  // Function to get the status text for a prerequisite
+  const getPrerequisiteStatus = (prereqCode: string): string => {
+    const normalizedPrereqCode = normalizeCourseCode(prereqCode);
+    const courseHistory = transcript.filter(t => normalizeCourseCode(t.code) === normalizedPrereqCode);
+    if (courseHistory.length === 0) return 'Not taken';
+    
+    const latestGrade = courseHistory[courseHistory.length - 1].grade;
+    if (latestGrade === '--') return 'Currently taken';
+    
+    // Check if it's a passing grade
+    const passingGrades = ['AA', 'BA', 'BA+', 'BB', 'BB+', 'CB', 'CB+', 'CC', 'CC+', 'DD', 'DD+', 'DC', 'DC+', 'BL'];
+    if (passingGrades.includes(latestGrade)) {
+      return latestGrade;
+    } else {
+      return 'Failed';
+    }
+  };
 
   if (!isOpen) return null;
   
@@ -133,7 +233,12 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
             <div className="flex justify-between items-center p-6 border-b border-gray-200">
               <div>
                 <h2 className="text-2xl font-bold text-gray-800">{courseCode}</h2>
-                <p className="text-gray-600 mt-1">Elective Course - {takenCourse.name}</p>
+                <p className="text-gray-600 mt-1">Elective Course - {getCourseNameFromData(takenCourse.code) || takenCourse.name}</p>
+                {takenCourse.credits && (
+                  <p className="text-sm text-blue-600 mt-1">
+                    Credits: {takenCourse.credits}
+                  </p>
+                )}
               </div>
               <button
                 onClick={onClose}
@@ -158,8 +263,13 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                           <div>
                             <p className="font-medium text-gray-800">{attempt.semester}</p>
                             <p className="text-sm text-gray-600">
-                              <span className="font-semibold">{attempt.code.replace(/\s+/g, '')}</span> - {attempt.name}
+                              <span className="font-semibold">{attempt.code.replace(/\s+/g, '')}</span> - {getCourseNameFromData(attempt.code) || attempt.name}
                             </p>
+                            {attempt.credits && (
+                              <p className="text-xs text-blue-600 mt-1">
+                                Credits: {attempt.credits}
+                              </p>
+                            )}
                           </div>
                           <div className="text-right">
                             <p className={`text-lg font-bold ${getGradeColor(attempt.grade)}`}>
@@ -173,13 +283,64 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                 )}
               </div>
 
-              {/* Connected Courses (Placeholder for future feature) */}
-              <div className="border-t border-gray-200 pt-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Connected Courses</h3>
-                <p className="text-gray-500 text-sm">
-                  This feature will show related courses and prerequisites in the future.
-                </p>
-              </div>
+              {/* Prerequisites */}
+              {(() => {
+                const prerequisites = getPrerequisites(takenCourse.code);
+                if (!prerequisites || prerequisites.length === 0) {
+                  return (
+                    <div className="border-t border-gray-200 pt-6">
+                      <h3 className="text-lg font-semibold text-gray-800 mb-4">Prerequisites</h3>
+                      <p className="text-gray-500 text-sm">No prerequisites required for this course.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="border-t border-gray-200 pt-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Prerequisites</h3>
+                    <div className="space-y-4">
+                      {prerequisites.map((group, groupIndex) => {
+                        const isGroupSatisfied = isPrerequisiteGroupSatisfied(group);
+                        return (
+                          <div key={groupIndex} className="bg-gray-50 rounded-lg p-4">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center">
+                              <div className={`w-3 h-3 rounded-full mr-2 ${isGroupSatisfied ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                              Group {group.group} {isGroupSatisfied && <span className="text-green-600 text-xs ml-2">(Satisfied)</span>}
+                            </h4>
+                            <div className="space-y-2">
+                              {group.courses.map((prereq, prereqIndex) => {
+                                const isSatisfied = isPrerequisiteSatisfied(prereq.code, prereq.min);
+                                const courseName = getCourseNameFromData(prereq.code) || prereq.code;
+                                const courseHistory = transcript.filter(t => t.code === prereq.code);
+                                const latestGrade = courseHistory.length > 0 ? courseHistory[courseHistory.length - 1].grade : '';
+                                
+                                return (
+                                  <div key={prereqIndex} className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-2">
+                                      <div className={`w-3 h-3 rounded-full ${isSatisfied ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                      <span className="text-sm font-medium text-gray-800">{courseName}</span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className={`text-sm font-semibold ${
+                                        getPrerequisiteStatus(prereq.code) === 'Not taken' ? 'text-gray-400' :
+                                        getPrerequisiteStatus(prereq.code) === 'Currently taken' ? 'text-blue-600' :
+                                        getPrerequisiteStatus(prereq.code) === 'Failed' ? 'text-red-600' :
+                                        isSatisfied ? 'text-green-600' : 'text-red-600'
+                                      }`}>
+                                        {getPrerequisiteStatus(prereq.code)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Footer */}
@@ -257,7 +418,7 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                 {allCourses.map((courseCode) => {
                   const attempts = transcript.filter(item => item.code === courseCode);
                   const latestGrade = attempts.length > 0 ? attempts[attempts.length - 1].grade : '';
-                  const courseName = attempts.length > 0 ? attempts[0].name : courseCode;
+                  const courseName = getCourseNameFromData(courseCode) || (attempts.length > 0 ? attempts[0].name : courseCode);
                   const isAssignedToOther = assignedCourses.has(courseCode);
                   
                   return (
@@ -275,14 +436,16 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                     >
                       <div className="text-sm font-medium">{courseCode}</div>
                       <div className="text-xs text-gray-600">{courseName}</div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {isAssignedToOther 
-                          ? 'Assigned to other elective'
-                          : attempts.length > 0 
-                          ? `${attempts.length} attempt${attempts.length !== 1 ? 's' : ''} • ${latestGrade}`
-                          : 'Not taken yet'
-                        }
-                      </div>
+                      {isAssignedToOther && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          Assigned to other elective
+                        </div>
+                      )}
+                      {attempts.length > 0 && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {attempts.length} attempt{attempts.length !== 1 ? 's' : ''} • {latestGrade}
+                        </div>
+                      )}
                     </button>
                   );
                 })}
@@ -294,7 +457,7 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                   <div className="text-xs text-yellow-700">
                     {takenButAssigned.map(course => (
                       <div key={course.code} className="mb-1">
-                        {course.code} - {course.name} (Grade: {course.grade})
+                        {course.code} - {getCourseNameFromData(course.code) || course.name} (Grade: {course.grade})
                       </div>
                     ))}
                   </div>
@@ -316,8 +479,13 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                           <div>
                             <p className="font-medium text-gray-800">{attempt.semester}</p>
                             <p className="text-sm text-gray-600">
-                              <span className="font-semibold">{attempt.code.replace(/\s+/g, '')}</span> - {attempt.name}
+                              <span className="font-semibold">{attempt.code.replace(/\s+/g, '')}</span> - {getCourseNameFromData(attempt.code) || attempt.name}
                             </p>
+                            {attempt.credits && (
+                              <p className="text-xs text-blue-600 mt-1">
+                                Credits: {attempt.credits}
+                              </p>
+                            )}
                           </div>
                           <div className="text-right">
                             <p className={`text-lg font-bold ${getGradeColor(attempt.grade)}`}>
@@ -357,9 +525,10 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
 
   // Regular course logic (non-elective)
   // Filter transcript for this specific course
-  // If we have a provided course name, use it to filter more precisely
+  // If we have a matched course code, use that for history; otherwise use the plan course code
+  const actualCourseCode = matchedCourseCode || planCourseCode;
   const courseHistory = transcript.filter(item => {
-    if (item.code !== courseCode) return false;
+    if (item.code !== actualCourseCode) return false;
     
     // If we have a specific course name provided, match it exactly
     if (providedCourseName) {
@@ -391,8 +560,8 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
   // Get the most recent attempt
   const latestAttempt = courseHistory[0]; // Now first item is most recent
   
-  // Get course name from the latest attempt or use provided name
-  const displayCourseName = providedCourseName || latestAttempt?.name || courseCode;
+  // Get course name from courses.json, then from transcript, then fallback to provided name or code
+  const displayCourseName = getCourseNameFromData(planCourseCode) || latestAttempt?.name || providedCourseName || planCourseCode;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -400,8 +569,18 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-gray-200">
                      <div>
-             <h2 className="text-2xl font-bold text-gray-800">{courseCode}</h2>
+             <h2 className="text-2xl font-bold text-gray-800">{planCourseCode}</h2>
              <p className="text-gray-600 mt-1">{displayCourseName}</p>
+             {latestAttempt && (
+               <p className="text-sm text-blue-600 mt-1">
+                 Credits: {latestAttempt.credits}
+               </p>
+             )}
+             {matchedCourseCode && hasWarningIcon && (
+               <p className="text-sm text-orange-600 mt-1">
+                 ⚠️ Matched with {matchedCourseCode} from transcript
+               </p>
+             )}
            </div>
           <button
             onClick={onClose}
@@ -426,8 +605,13 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                       <div>
                         <p className="font-medium text-gray-800">{attempt.semester}</p>
                         <p className="text-sm text-gray-600">
-                          <span className="font-semibold">{attempt.code.replace(/\s+/g, '')}</span> - {attempt.name}
+                          <span className="font-semibold">{attempt.code.replace(/\s+/g, '')}</span> - {getCourseNameFromData(attempt.code) || attempt.name}
                         </p>
+                        {attempt.credits && (
+                          <p className="text-xs text-blue-600 mt-1">
+                            Credits: {attempt.credits}
+                          </p>
+                        )}
                       </div>
                       <div className="text-right">
                         <p className={`text-lg font-bold ${getGradeColor(attempt.grade)}`}>
@@ -443,13 +627,64 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
 
           
 
-          {/* Connected Courses (Placeholder for future feature) */}
-          <div className="border-t border-gray-200 pt-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Connected Courses</h3>
-            <p className="text-gray-500 text-sm">
-              This feature will show related courses and prerequisites in the future.
-            </p>
-          </div>
+          {/* Prerequisites */}
+          {(() => {
+            const prerequisites = getPrerequisites(planCourseCode);
+            if (!prerequisites || prerequisites.length === 0) {
+              return (
+                <div className="border-t border-gray-200 pt-6">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Prerequisites</h3>
+                  <p className="text-gray-500 text-sm">No prerequisites required for this course.</p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="border-t border-gray-200 pt-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Prerequisites</h3>
+                                    <div className="space-y-4">
+                      {prerequisites.map((group, groupIndex) => {
+                        const isGroupSatisfied = isPrerequisiteGroupSatisfied(group);
+                        return (
+                          <div key={groupIndex} className="bg-gray-50 rounded-lg p-4">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center">
+                              <div className={`w-3 h-3 rounded-full mr-2 ${isGroupSatisfied ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                              Group {group.group} {isGroupSatisfied && <span className="text-green-600 text-xs ml-2">(Satisfied)</span>}
+                            </h4>
+                            <div className="space-y-2">
+                              {group.courses.map((prereq, prereqIndex) => {
+                                const isSatisfied = isPrerequisiteSatisfied(prereq.code, prereq.min);
+                                const courseName = getCourseNameFromData(prereq.code) || prereq.code;
+                                const courseHistory = transcript.filter(t => t.code === prereq.code);
+                                const latestGrade = courseHistory.length > 0 ? courseHistory[courseHistory.length - 1].grade : '';
+                                
+                                return (
+                                  <div key={prereqIndex} className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-2">
+                                      <div className={`w-3 h-3 rounded-full ${isSatisfied ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                      <span className="text-sm font-medium text-gray-800">{courseName}</span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className={`text-sm font-semibold ${
+                                        getPrerequisiteStatus(prereq.code) === 'Not taken' ? 'text-gray-400' :
+                                        getPrerequisiteStatus(prereq.code) === 'Currently taken' ? 'text-blue-600' :
+                                        getPrerequisiteStatus(prereq.code) === 'Failed' ? 'text-red-600' :
+                                        isSatisfied ? 'text-green-600' : 'text-red-600'
+                                      }`}>
+                                        {getPrerequisiteStatus(prereq.code)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Footer */}
