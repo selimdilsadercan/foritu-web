@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@clerk/nextjs": "^6.28.1",
     "@types/multer": "^2.0.0",
     "fs": "^0.0.1-security",
     "multer": "^2.0.2",

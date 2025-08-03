@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useUser, SignOutButton, UserButton } from '@clerk/nextjs';
 import UploadTranscriptModal from './UploadTranscriptModal';
 
 interface TranscriptItem {
@@ -46,6 +47,23 @@ export default function SemesterPanel({
   onDeleteSemester,
   onUploadTranscript
 }: SemesterPanelProps) {
+  const { user } = useUser();
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (showUserMenu && !target.closest('.user-menu-container')) {
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showUserMenu]);
   // Get unique semesters from transcript, sorted in reverse chronological order
   const getUniqueSemesters = () => {
     const semesters = [...new Set(transcript.map(item => item.semester))];
@@ -143,27 +161,14 @@ export default function SemesterPanel({
   };
 
   return (
-    <div className="w-80 bg-gray-50 border-r border-gray-200 overflow-y-auto">
+    <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
       <div className="p-6 border-b border-gray-200 bg-white">
         <h1 className="text-2xl font-bold text-gray-900 mb-1">🐝Foritu</h1>
         <p className="text-sm text-gray-500">Academic Progress Tracker</p>
       </div>
       
-      <div className="p-4 space-y-2">
-        {/* Upload Transcript Button */}
-        <button
-          className="w-full text-center px-3 py-2 rounded-lg transition-all duration-200 bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow-md cursor-pointer"
-          onClick={() => setUploadModalOpen(true)}
-        >
-          <div className="flex items-center justify-center">
-            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            <span className="font-medium text-sm">
-              Upload Transcript
-            </span>
-          </div>
-        </button>
+      <div className="flex-1 overflow-y-auto">
+                 <div className="p-4 space-y-2">
 
         {/* Plan Next Semester Button */}
         <button
@@ -260,6 +265,91 @@ export default function SemesterPanel({
                 );
                       })}
          </div>
+        </div>
+        
+        {/* User Profile at Bottom */}
+        <div className="mt-auto pt-4 border-t border-gray-200">
+          <div className="p-4">
+            <div className="relative user-menu-container">
+              {/* Clickable User Info */}
+              <button
+                className="w-full flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200"
+                onClick={() => setShowUserMenu(!showUserMenu)}
+              >
+                {/* Clerk Avatar */}
+                <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200">
+                  {user?.imageUrl ? (
+                    <img 
+                      src={user.imageUrl} 
+                      alt="Profile" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-blue-600 flex items-center justify-center">
+                      <span className="text-white font-semibold text-sm">
+                        {user?.firstName?.charAt(0) || user?.emailAddresses[0]?.emailAddress?.charAt(0) || 'U'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* User Details */}
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {user?.firstName || user?.emailAddresses[0]?.emailAddress || 'User'}
+                  </p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {user?.emailAddresses[0]?.emailAddress || 'user@example.com'}
+                  </p>
+                </div>
+                
+                {/* Dropdown Arrow */}
+                <svg 
+                  className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`}
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              
+              {/* Dropdown Menu */}
+              {showUserMenu && (
+                <div className="absolute bottom-full left-0 right-0 mb-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                  <div className="py-1">
+                                         {/* Reset My Transcript */}
+                     <button
+                       className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                       onClick={() => {
+                         setShowUserMenu(false);
+                         setUploadModalOpen(true);
+                       }}
+                     >
+                       <svg className="w-4 h-4 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                       </svg>
+                       Reset Transcript
+                     </button>
+                    
+                    {/* Sign Out */}
+                    <SignOutButton>
+                      <button
+                        className="w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center"
+                        onClick={() => setShowUserMenu(false)}
+                      >
+                        <svg className="w-4 h-4 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                        Sign Out
+                      </button>
+                    </SignOutButton>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
         
         {/* Upload Transcript Modal */}
         <UploadTranscriptModal
