@@ -228,11 +228,11 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
       
       return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto mx-4">
             {/* Header */}
-            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+            <div className="flex justify-between items-center p-4 lg:p-6 border-b border-gray-200">
               <div>
-                <h2 className="text-2xl font-bold text-gray-800">{courseCode}</h2>
+                <h2 className="text-xl lg:text-2xl font-bold text-gray-800">{courseCode}</h2>
                 <p className="text-gray-600 mt-1">Elective Course - {getCourseNameFromData(takenCourse.code) || takenCourse.name}</p>
                 {takenCourse.credits && (
                   <p className="text-sm text-blue-600 mt-1">
@@ -393,7 +393,7 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
     
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto mx-4">
           {/* Header */}
           <div className="flex justify-between items-center p-6 border-b border-gray-200">
             <div>
@@ -565,7 +565,7 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto mx-4">
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-gray-200">
                      <div>

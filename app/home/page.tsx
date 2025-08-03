@@ -61,6 +61,7 @@ export default function Home() {
   const [planLoaded, setPlanLoaded] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<SemesterItem[][]>([]);
   const [showPlanModal, setShowPlanModal] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Load courses data from JSON file and get user's data in correct order
   useEffect(() => {
@@ -806,11 +807,54 @@ export default function Home() {
         </div>
       )}
 
-
+      {/* Mobile Header */}
+      <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">🐝Foritu</h1>
+            <p className="text-xs text-gray-500">Academic Progress Tracker</p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-2">
+          {user?.imageUrl ? (
+            <img 
+              src={user.imageUrl} 
+              alt="Profile" 
+              className="w-8 h-8 rounded-full"
+            />
+          ) : (
+            <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+              <span className="text-white font-semibold text-sm">
+                {user?.firstName?.charAt(0) || user?.emailAddresses[0]?.emailAddress?.charAt(0) || 'U'}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Main Content with Left Panel */}
-      <div className="flex h-screen">
-          {/* Left Panel */}
+      <div className="flex h-screen lg:h-[calc(100vh-0px)]">
+        {/* Mobile Sidebar Overlay */}
+        {sidebarOpen && (
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        {/* Left Panel */}
+        <div className={`
+          fixed lg:relative inset-y-0 left-0 z-50 w-80 bg-gray-50 border-r border-gray-200 transform transition-transform duration-300 ease-in-out
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        `}>
           <SemesterPanel
             transcript={transcript}
             plan={selectedPlan}
@@ -820,221 +864,224 @@ export default function Home() {
             onDeleteLatestSemester={deleteLatestSemester}
             onDeleteSemester={deleteSemester}
             onUploadTranscript={handleTranscriptUpload}
+            onClose={() => setSidebarOpen(false)}
           />
-          
-          {/* Main Content Area */}
-          <div className="flex-1 overflow-y-auto">
-            {/* Compact Progress Summary */}
-            {selectedPlan.length > 0 && (
-              <div className="w-full max-w-7xl mx-auto p-6">
-                <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-6">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm text-gray-600">Credits:</span>
-                        <span className="text-lg font-bold text-blue-600">{progressMetrics.totalCredits}</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm text-gray-600">Class:</span>
-                        <span className="text-lg font-bold text-green-600">{progressMetrics.classStanding}</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm text-gray-600">GPA:</span>
-                        <span className="text-lg font-bold text-purple-600">{progressMetrics.gpa}</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm text-gray-600">Courses:</span>
-                        <span className="text-lg font-bold text-orange-600">{progressMetrics.completedCourses}</span>
-                      </div>
+        </div>
+        
+        {/* Main Content Area */}
+        <div className="flex-1 overflow-y-auto lg:overflow-y-auto">
+          {/* Compact Progress Summary */}
+          {selectedPlan.length > 0 && (
+            <div className="w-full max-w-7xl mx-auto p-4 lg:p-6">
+              <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm text-gray-600">Credits:</span>
+                      <span className="text-lg font-bold text-blue-600">{progressMetrics.totalCredits}</span>
                     </div>
-                    <div className="flex items-center space-x-3">
-                      <span className="text-sm text-gray-500">{progressMetrics.totalCredits}/120</span>
-                      <div className="w-24 bg-gray-200 rounded-full h-2">
-                        <div 
-                          className="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${Math.min((progressMetrics.totalCredits / 120) * 100, 100)}%` }}
-                        ></div>
-                      </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm text-gray-600">Class:</span>
+                      <span className="text-lg font-bold text-green-600">{progressMetrics.classStanding}</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm text-gray-600">GPA:</span>
+                      <span className="text-lg font-bold text-purple-600">{progressMetrics.gpa}</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm text-gray-600">Courses:</span>
+                      <span className="text-lg font-bold text-orange-600">{progressMetrics.completedCourses}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <span className="text-sm text-gray-500">{progressMetrics.totalCredits}/120</span>
+                    <div className="w-24 bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min((progressMetrics.totalCredits / 120) * 100, 100)}%` }}
+                      ></div>
                     </div>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {selectedPlan.length > 0 && selectedSemester ? (
-              <div className="w-full max-w-7xl mx-auto p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-6">
-                  {Array.isArray(selectedPlan) && selectedPlan.map((semester: SemesterItem[], semesterIndex: number) => (
-                    <div key={semesterIndex} className="space-y-3">
+                      {selectedPlan.length > 0 && selectedSemester ? (
+              <div className="w-full max-w-7xl mx-auto p-4 lg:p-6">
+                                <div className="flex overflow-x-auto xl:overflow-x-visible gap-4 xl:gap-6 pb-4 xl:pb-0">
+                  <div className="flex xl:grid xl:grid-cols-8 gap-4 xl:gap-6 min-w-max xl:min-w-0 xl:w-full">
+                    {Array.isArray(selectedPlan) && selectedPlan.map((semester: SemesterItem[], semesterIndex: number) => (
+                      <div key={semesterIndex} className="space-y-3 w-32 xl:w-auto flex-shrink-0">
                       <h2 className="text-lg font-semibold text-center text-gray-700 bg-gray-100 py-2 rounded-lg shadow-sm">
                         Semester {semesterIndex + 1}
                       </h2>
-                      
-                      <div className="space-y-2">
-                        {Array.isArray(semester) && semester.map((item: SemesterItem, itemIndex: number) => (
-                          <div key={itemIndex}>
-                            {item.type === 'course' ? (
-                              (() => {
-                                // First check if the exact course code exists in filtered transcript
-                                const exactMatch = filteredTranscript.find((t: TranscriptItem) => t.code === item.code);
-                                
-                                // If no exact match, try to find by number part
-                                const numberMatch = !exactMatch ? findCourseByNumber(item.code, planCourseCodes) : null;
-                                
-                                // Determine which course to display
-                                const displayCourse = exactMatch || numberMatch;
-                                const isNumberMatch = !exactMatch && numberMatch;
-                                
-                                return (
-                                  <div 
-                                    className={`${displayCourse ? getItemColor({ type: 'course', code: displayCourse.code }) : getItemColor(item)} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 relative`}
-                                    onClick={() => handleCourseClick(item.code, false, displayCourse?.code, Boolean(isNumberMatch))}
-                                  >
-                                    <div className="text-sm font-medium text-center">
-                                      {formatCourseCode(item.code)}
+                    
+                    <div className="space-y-2">
+                      {Array.isArray(semester) && semester.map((item: SemesterItem, itemIndex: number) => (
+                        <div key={itemIndex}>
+                          {item.type === 'course' ? (
+                            (() => {
+                              // First check if the exact course code exists in filtered transcript
+                              const exactMatch = filteredTranscript.find((t: TranscriptItem) => t.code === item.code);
+                              
+                              // If no exact match, try to find by number part
+                              const numberMatch = !exactMatch ? findCourseByNumber(item.code, planCourseCodes) : null;
+                              
+                              // Determine which course to display
+                              const displayCourse = exactMatch || numberMatch;
+                              const isNumberMatch = !exactMatch && numberMatch;
+                              
+                              return (
+                                <div 
+                                  className={`${displayCourse ? getItemColor({ type: 'course', code: displayCourse.code }) : getItemColor(item)} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 relative`}
+                                  onClick={() => handleCourseClick(item.code, false, displayCourse?.code, Boolean(isNumberMatch))}
+                                >
+                                  <div className="text-sm font-medium text-center">
+                                    {formatCourseCode(item.code)}
+                                  </div>
+                                  {isNumberMatch && (
+                                    <div className="absolute -top-1 -left-1 bg-orange-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                      ⚠️
                                     </div>
-                                    {isNumberMatch && (
-                                      <div className="absolute -top-1 -left-1 bg-orange-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                        ⚠️
-                                      </div>
-                                    )}
-                                    {(() => {
-                                      if (displayCourse) {
-                                        const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === displayCourse.code);
-                                        if (courseHistory.length > 0) {
-                                          const latestGrade = courseHistory[courseHistory.length - 1].grade;
-                                          return (
-                                            <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                              {latestGrade}
-                                            </div>
-                                          );
-                                        }
-                                      }
-                                      
-                                      if (hasUnsatisfiedPrerequisites(item.code)) {
+                                  )}
+                                  {(() => {
+                                    if (displayCourse) {
+                                      const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === displayCourse.code);
+                                      if (courseHistory.length > 0) {
+                                        const latestGrade = courseHistory[courseHistory.length - 1].grade;
                                         return (
-                                          <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                            🔒
+                                          <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                            {latestGrade}
                                           </div>
                                         );
                                       }
-                                      return null;
-                                    })()}
-                  </div>
-                                );
-                              })()
-                            ) : (
-                              (() => {
-                                const assignedCourse = getAssignedCourseForElective(item.name);
-                                if (assignedCourse) {
-                                  // Show the assigned course with elective category
-                                  const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === assignedCourse.code);
-                                  const latestGrade = courseHistory.length > 0 ? courseHistory[courseHistory.length - 1].grade : '';
-                                  
-                                  return (
-                                    <div 
-                                      className={`${getItemColor({ type: 'course', code: assignedCourse.code })} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 relative`}
-                                      onClick={() => handleCourseClick(assignedCourse.code, false, undefined, false)}
-                                    >
-                                      <div className="text-xs font-medium text-center">
-                                        {formatCourseCode(assignedCourse.code)}
-                                      </div>
-                                      <div className="text-xs text-center mt-1 opacity-75">
-                                        ({item.category})
-                                      </div>
-                                      {latestGrade ? (
-                                        <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                          {latestGrade}
-                                        </div>
-                                      ) : hasUnsatisfiedPrerequisites(assignedCourse.code) ? (
+                                    }
+                                    
+                                    if (hasUnsatisfiedPrerequisites(item.code)) {
+                                      return (
                                         <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
                                           🔒
                                         </div>
-                                      ) : null}
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                </div>
+                              );
+                            })()
+                          ) : (
+                            (() => {
+                              const assignedCourse = getAssignedCourseForElective(item.name);
+                              if (assignedCourse) {
+                                // Show the assigned course with elective category
+                                const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === assignedCourse.code);
+                                const latestGrade = courseHistory.length > 0 ? courseHistory[courseHistory.length - 1].grade : '';
+                                
+                                return (
+                                  <div 
+                                    className={`${getItemColor({ type: 'course', code: assignedCourse.code })} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 relative`}
+                                    onClick={() => handleCourseClick(assignedCourse.code, false, undefined, false)}
+                                  >
+                                    <div className="text-xs font-medium text-center">
+                                      {formatCourseCode(assignedCourse.code)}
                                     </div>
-                                  );
-                                } else {
-                                  // Show elective name if no course is assigned
-                                  return (
-                                    <div 
-                                      className={`${getItemColor(item)} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105`}
-                                      onClick={() => handleCourseClick(item.name, true, undefined, false)}
-                                    >
-                                      <div className="text-xs font-medium text-center">
-                                        {item.name}
-                                      </div>
-                                      <div className="text-xs text-center mt-1 opacity-75">
-                                        ({item.category})
-                                      </div>
+                                    <div className="text-xs text-center mt-1 opacity-75">
+                                      ({item.category})
                                     </div>
-                                  );
-                                }
-                              })()
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                                    {latestGrade ? (
+                                      <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                        {latestGrade}
+                                      </div>
+                                    ) : hasUnsatisfiedPrerequisites(assignedCourse.code) ? (
+                                      <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                        🔒
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              } else {
+                                // Show elective name if no course is assigned
+                                return (
+                                  <div 
+                                    className={`${getItemColor(item)} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105`}
+                                    onClick={() => handleCourseClick(item.name, true, undefined, false)}
+                                  >
+                                    <div className="text-xs font-medium text-center">
+                                      {item.name}
+                                    </div>
+                                    <div className="text-xs text-center mt-1 opacity-75">
+                                      ({item.category})
+                                    </div>
+                                  </div>
+                                );
+                              }
+                            })()
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+                                  ))}
+                  </div>
                 </div>
 
                 {/* Legend */}
-                <div className="mt-8 p-6 bg-gray-50 rounded-lg shadow-sm">
-                  <h3 className="text-lg font-semibold mb-4 text-gray-700">Legend</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-5 h-5 bg-purple-500 rounded shadow-sm"></div>
-                      <span className="text-sm text-gray-600">Not Taken</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <div className="w-5 h-5 bg-blue-500 rounded shadow-sm"></div>
-                      <span className="text-sm text-gray-600">Currently Taken</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <div className="w-5 h-5 bg-green-600 rounded shadow-sm"></div>
-                      <span className="text-sm text-gray-600">Passed</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <div className="w-5 h-5 bg-red-400 rounded shadow-sm"></div>
-                      <span className="text-sm text-gray-600">Failed</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <div className="w-5 h-5 bg-yellow-500 rounded shadow-sm flex items-center justify-center text-xs">🔒</div>
-                      <span className="text-sm text-gray-600">Prerequisites Not Met</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <div className="w-5 h-5 bg-orange-500 rounded shadow-sm flex items-center justify-center text-xs">⚠️</div>
-                      <span className="text-sm text-gray-600">Different Course</span>
-                    </div>
+                <div className="mt-8 p-4 lg:p-6 bg-gray-50 rounded-lg shadow-sm">
+                <h3 className="text-lg font-semibold mb-4 text-gray-700">Legend</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-5 h-5 bg-purple-500 rounded shadow-sm"></div>
+                    <span className="text-sm text-gray-600">Not Taken</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-5 h-5 bg-blue-500 rounded shadow-sm"></div>
+                    <span className="text-sm text-gray-600">Currently Taken</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-5 h-5 bg-green-600 rounded shadow-sm"></div>
+                    <span className="text-sm text-gray-600">Passed</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-5 h-5 bg-red-400 rounded shadow-sm"></div>
+                    <span className="text-sm text-gray-600">Failed</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-5 h-5 bg-yellow-500 rounded shadow-sm flex items-center justify-center text-xs">🔒</div>
+                    <span className="text-sm text-gray-600">Prerequisites Not Met</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-5 h-5 bg-orange-500 rounded shadow-sm flex items-center justify-center text-xs">⚠️</div>
+                    <span className="text-sm text-gray-600">Different Course</span>
                   </div>
                 </div>
               </div>
-            ) : selectedPlan.length > 0 ? (
-              <SemesterGrid plan={selectedPlan} transcript={transcript} />
-            ) : null}
-          </div>
+            </div>
+          ) : selectedPlan.length > 0 ? (
+            <SemesterGrid plan={selectedPlan} transcript={transcript} />
+          ) : null}
         </div>
-
-        {/* Course Popup */}
-        <CoursePopup
-          isOpen={popupOpen}
-          onClose={() => setPopupOpen(false)}
-          courseCode={selectedCourse}
-          courseName={getCourseNameFromTranscript(selectedCourse)}
-          transcript={filteredTranscript}
-          isElective={isSelectedElective}
-          plan={selectedPlan}
-          hasWarningIcon={hasWarningIcon}
-        />
-
-        {/* Plan Selection Modal */}
-        <PlanSelectionModal
-          isOpen={showPlanModal}
-          onClose={() => setShowPlanModal(false)}
-          onPlanSelect={handlePlanSelect}
-          userId={user?.id || ''}
-        />
-
       </div>
-    );
-  }
+
+      {/* Course Popup */}
+      <CoursePopup
+        isOpen={popupOpen}
+        onClose={() => setPopupOpen(false)}
+        courseCode={selectedCourse}
+        courseName={getCourseNameFromTranscript(selectedCourse)}
+        transcript={filteredTranscript}
+        isElective={isSelectedElective}
+        plan={selectedPlan}
+        hasWarningIcon={hasWarningIcon}
+      />
+
+      {/* Plan Selection Modal */}
+      <PlanSelectionModal
+        isOpen={showPlanModal}
+        onClose={() => setShowPlanModal(false)}
+        onPlanSelect={handlePlanSelect}
+        userId={user?.id || ''}
+      />
+    </div>
+  );
+}
