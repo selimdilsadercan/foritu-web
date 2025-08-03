@@ -5,11 +5,8 @@ import { useUser } from '@clerk/nextjs';
 import SemesterGrid from '@/components/SemesterGrid';
 import SemesterPanel from '@/components/SemesterPanel';
 import CoursePopup from '@/components/CoursePopup';
-import planData from '@/public/plan.json';
-import { parseTranscriptFromBase64, GetTranscript, StoreTranscript } from '@/lib/actions';
-
-// Type assertion for the plan data
-const typedPlanData = planData as any;
+import PlanSelectionModal from '@/components/PlanSelectionModal';
+import { parseTranscriptFromBase64, GetTranscript, StoreTranscript, GetPlan } from '@/lib/actions';
 
 interface Course {
   type: 'course';
@@ -60,8 +57,12 @@ export default function Home() {
   const [coursesData, setCoursesData] = useState<CourseInfo[]>([]);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPlanLoading, setIsPlanLoading] = useState(false);
+  const [planLoaded, setPlanLoaded] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<SemesterItem[][]>([]);
+  const [showPlanModal, setShowPlanModal] = useState(false);
 
-  // Load courses data from JSON file and get user's transcript
+  // Load courses data from JSON file and get user's data in correct order
   useEffect(() => {
     const loadCoursesData = async () => {
       try {
@@ -73,19 +74,66 @@ export default function Home() {
       }
     };
 
-    // Load user's transcript from API
+    // Load user's plan from API - FIRST PRIORITY
+    const loadUserPlan = async () => {
+      setIsPlanLoading(true);
+      setPlanLoaded(false);
+      if (user?.id) {
+        try {
+          console.log('Client: Loading user plan first...');
+          const result = await GetPlan(user.id);
+          
+          if (result.success && result.plan) {
+            // Convert PlanCourse[][] back to SemesterItem[][]
+            const convertedPlan: SemesterItem[][] = result.plan.map(semester => 
+              semester.map(item => {
+                if (item.type === 'course') {
+                  return {
+                    type: 'course' as const,
+                    code: item.code
+                  } as SemesterItem;
+                } else {
+                  return {
+                    type: 'elective' as const,
+                    name: item.name || '',
+                    category: item.category || '',
+                    options: item.options || []
+                  } as SemesterItem;
+                }
+              })
+            );
+            setSelectedPlan(convertedPlan);
+            setPlanLoaded(true);
+            console.log('Client: Plan loaded successfully');
+          } else {
+            setSelectedPlan([]); // Use empty array if no plan found
+            setPlanLoaded(true);
+            console.log('Client: No plan found, using empty plan');
+          }
+        } catch (error) {
+          console.error('Client: Error loading user plan:', error);
+          setSelectedPlan([]); // Use empty array on error
+          setPlanLoaded(true);
+        }
+      } else {
+        console.log('Client: No user ID available, using empty plan');
+        setSelectedPlan([]);
+        setPlanLoaded(true);
+      }
+      setIsPlanLoading(false);
+    };
+
+    // Load user's transcript from API - SECOND PRIORITY (after plan is loaded)
     const loadUserTranscript = async () => {
       setIsLoading(true);
       if (user?.id) {
         try {
-          console.log('Client: Loading transcript for user:', user.id);
+          console.log('Client: Loading user transcript after plan...');
           const result = await GetTranscript(user.id);
           
           if (result.success && result.courses.length > 0) {
-            console.log('Client: Successfully loaded transcript with', result.courses.length, 'courses');
             setTranscript(result.courses);
           } else {
-            console.log('Client: No transcript found or error occurred:', result.error);
             setTranscript([]); // Use empty array instead of static data
           }
         } catch (error) {
@@ -99,9 +147,31 @@ export default function Home() {
       setIsLoading(false);
     };
 
-    loadCoursesData();
-    loadUserTranscript();
+    // Execute in the correct order: courses data -> plan -> transcript
+    const initializeData = async () => {
+      await loadCoursesData();
+      
+      if (user?.id) {
+        await loadUserPlan(); // Load plan FIRST
+        await loadUserTranscript(); // Then load transcript
+      } else {
+        // If no user ID, still load courses data but use empty plan and transcript
+        setSelectedPlan([]);
+        setTranscript([]);
+        setIsLoading(false);
+      }
+    };
+
+    initializeData();
   }, [user?.id]);
+
+  // Show plan selection modal automatically when no plan is selected and plan loading is complete
+  useEffect(() => {
+    if (selectedPlan.length === 0 && !isLoading && !isPlanLoading && planLoaded) {
+      console.log('Client: Showing plan selection modal - no plan found and loading complete');
+      setShowPlanModal(true);
+    }
+  }, [selectedPlan.length, isLoading, isPlanLoading, planLoaded]);
 
   const handleSemesterSelect = (semesterName: string) => {
     setSelectedSemester(semesterName);
@@ -112,33 +182,11 @@ export default function Home() {
   // Handle transcript upload
   const handleTranscriptUpload = async (file: File) => {
     try {
-      console.log('Client: Uploading file:', file.name);
-      console.log('Client: File type:', file.type);
-      console.log('Client: File size:', file.size, 'bytes');
-      
       // Convert file to base64
       const base64 = await convertFileToBase64(file);
-      console.log('Client: File converted to base64, length:', base64.length);
       
       // Call server action to parse transcript
-      console.log('Client: Calling server action to parse transcript...');
       const result = await parseTranscriptFromBase64(base64);
-      
-      console.log('Client: Server response received:');
-      console.log('Client: Courses found:', result.courses.length);
-      console.log('Client: Error:', result.error);
-      console.log('Client: Debug:', result.debug);
-      
-      // Log each course from client side
-      result.courses.forEach((course, index) => {
-        console.log(`Client: Course ${index + 1}:`, {
-          semester: course.semester,
-          code: course.code,
-          name: course.name,
-          credits: course.credits,
-          grade: course.grade
-        });
-      });
       
       if (result.error) {
         alert(`Error parsing transcript: ${result.error}`);
@@ -203,13 +251,11 @@ export default function Home() {
           textReader.onload = () => {
             const textContent = textReader.result as string;
             const utf8Base64 = btoa(unescape(encodeURIComponent(textContent)));
-            console.log('UTF-8 encoded base64:', utf8Base64);
             resolve(utf8Base64);
           };
           textReader.onerror = (error) => reject(error);
         } else {
           // For binary files like PDF, the base64 is already properly encoded
-          console.log('Binary file base64 (already UTF-8 compatible):', base64Data);
           resolve(base64Data);
         }
       };
@@ -515,6 +561,32 @@ export default function Home() {
     }
   };
 
+  const handlePlanSelect = (plan: SemesterItem[][]) => {
+    // Ensure plan is a valid array of arrays
+    if (!Array.isArray(plan)) {
+      console.error('Plan is not an array:', plan);
+      console.error('Plan type:', typeof plan);
+      return;
+    }
+    
+    // Validate each semester is an array
+    const validPlan = plan.filter(semester => {
+      const isValid = Array.isArray(semester);
+      if (!isValid) {
+        console.warn('Invalid semester found:', semester);
+        console.warn('Semester type:', typeof semester);
+      }
+      return isValid;
+    });
+    
+    if (validPlan.length !== plan.length) {
+      console.warn('Some semesters were not arrays and were filtered out');
+    }
+    
+    setSelectedPlan(validPlan);
+    setShowPlanModal(false);
+  };
+
   // Helper function to get the actual course name from transcript
   const getCourseNameFromTranscript = (courseCode: string) => {
     const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === courseCode);
@@ -538,7 +610,7 @@ export default function Home() {
   const getAssignedCourseForElective = (electiveName: string) => {
     // Find the elective in the plan to get its options
     let electiveOptions: string[] = [];
-    for (const semester of typedPlanData) {
+    for (const semester of selectedPlan) {
       for (const item of semester) {
         if (item.type === 'elective' && item.name === electiveName) {
           electiveOptions = item.options || [];
@@ -561,7 +633,7 @@ export default function Home() {
     const globalAssignmentMap = new Map<string, string>(); // courseCode -> electiveName
     
     // First pass: assign courses to electives that have only one option
-    for (const semester of typedPlanData) {
+    for (const semester of selectedPlan) {
       for (const item of semester) {
         if (item.type === 'elective') {
           const otherElectiveOptions = item.options || [];
@@ -579,7 +651,7 @@ export default function Home() {
     }
     
     // Second pass: for electives with multiple options, assign the first available course
-    for (const semester of typedPlanData) {
+    for (const semester of selectedPlan) {
       for (const item of semester) {
         if (item.type === 'elective') {
           const otherElectiveOptions = item.options || [];
@@ -610,7 +682,7 @@ export default function Home() {
 
   // Get all course codes from the plan
   const planCourseCodes = new Set<string>();
-  typedPlanData.forEach((semester: SemesterItem[]) => {
+  selectedPlan.forEach((semester: SemesterItem[]) => {
     semester.forEach((item: SemesterItem) => {
       if (item.type === 'course') {
         planCourseCodes.add(item.code);
@@ -721,18 +793,27 @@ export default function Home() {
         <div className="fixed inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50">
           <div className="text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600 text-lg font-medium">Loading your transcript...</p>
-            <p className="text-gray-500 text-sm mt-2">Please wait while we fetch your academic data</p>
+            <p className="text-gray-600 text-lg font-medium">
+              {isPlanLoading ? 'Loading your academic plan...' : 'Loading your transcript...'}
+            </p>
+            <p className="text-gray-500 text-sm mt-2">
+              {isPlanLoading 
+                ? 'Please wait while we fetch your academic plan first' 
+                : 'Please wait while we fetch your academic data'
+              }
+            </p>
           </div>
         </div>
       )}
+
+
 
       {/* Main Content with Left Panel */}
       <div className="flex h-screen">
           {/* Left Panel */}
           <SemesterPanel
             transcript={transcript}
-            plan={typedPlanData}
+            plan={selectedPlan}
             onSemesterSelect={handleSemesterSelect}
             selectedSemester={selectedSemester}
             onAddNewSemester={addNewSemester}
@@ -744,51 +825,53 @@ export default function Home() {
           {/* Main Content Area */}
           <div className="flex-1 overflow-y-auto">
             {/* Compact Progress Summary */}
-            <div className="w-full max-w-7xl mx-auto p-6">
-              <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-6">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-600">Credits:</span>
-                      <span className="text-lg font-bold text-blue-600">{progressMetrics.totalCredits}</span>
+            {selectedPlan.length > 0 && (
+              <div className="w-full max-w-7xl mx-auto p-6">
+                <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-6">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm text-gray-600">Credits:</span>
+                        <span className="text-lg font-bold text-blue-600">{progressMetrics.totalCredits}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm text-gray-600">Class:</span>
+                        <span className="text-lg font-bold text-green-600">{progressMetrics.classStanding}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm text-gray-600">GPA:</span>
+                        <span className="text-lg font-bold text-purple-600">{progressMetrics.gpa}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm text-gray-600">Courses:</span>
+                        <span className="text-lg font-bold text-orange-600">{progressMetrics.completedCourses}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-600">Class:</span>
-                      <span className="text-lg font-bold text-green-600">{progressMetrics.classStanding}</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-600">GPA:</span>
-                      <span className="text-lg font-bold text-purple-600">{progressMetrics.gpa}</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-600">Courses:</span>
-                      <span className="text-lg font-bold text-orange-600">{progressMetrics.completedCourses}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <span className="text-sm text-gray-500">{progressMetrics.totalCredits}/120</span>
-                    <div className="w-24 bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min((progressMetrics.totalCredits / 120) * 100, 100)}%` }}
-                      ></div>
+                    <div className="flex items-center space-x-3">
+                      <span className="text-sm text-gray-500">{progressMetrics.totalCredits}/120</span>
+                      <div className="w-24 bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${Math.min((progressMetrics.totalCredits / 120) * 100, 100)}%` }}
+                        ></div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            {selectedSemester ? (
+            {selectedPlan.length > 0 && selectedSemester ? (
               <div className="w-full max-w-7xl mx-auto p-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-6">
-                  {typedPlanData.map((semester: SemesterItem[], semesterIndex: number) => (
+                  {Array.isArray(selectedPlan) && selectedPlan.map((semester: SemesterItem[], semesterIndex: number) => (
                     <div key={semesterIndex} className="space-y-3">
                       <h2 className="text-lg font-semibold text-center text-gray-700 bg-gray-100 py-2 rounded-lg shadow-sm">
                         Semester {semesterIndex + 1}
                       </h2>
                       
                       <div className="space-y-2">
-                        {semester.map((item: SemesterItem, itemIndex: number) => (
+                        {Array.isArray(semester) && semester.map((item: SemesterItem, itemIndex: number) => (
                           <div key={itemIndex}>
                             {item.type === 'course' ? (
                               (() => {
@@ -926,9 +1009,9 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            ) : (
-              <SemesterGrid plan={typedPlanData} transcript={transcript} />
-            )}
+            ) : selectedPlan.length > 0 ? (
+              <SemesterGrid plan={selectedPlan} transcript={transcript} />
+            ) : null}
           </div>
         </div>
 
@@ -940,9 +1023,18 @@ export default function Home() {
           courseName={getCourseNameFromTranscript(selectedCourse)}
           transcript={filteredTranscript}
           isElective={isSelectedElective}
-          plan={typedPlanData}
+          plan={selectedPlan}
           hasWarningIcon={hasWarningIcon}
         />
-    </div>
-  );
-}
+
+        {/* Plan Selection Modal */}
+        <PlanSelectionModal
+          isOpen={showPlanModal}
+          onClose={() => setShowPlanModal(false)}
+          onPlanSelect={handlePlanSelect}
+          userId={user?.id || ''}
+        />
+
+      </div>
+    );
+  }

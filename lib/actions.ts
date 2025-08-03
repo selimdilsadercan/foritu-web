@@ -206,6 +206,150 @@ export async function DeleteTranscript(userId: string): Promise<DeleteTranscript
   }
 }
 
+// Plan-related interfaces
+export interface PlanCourse {
+  type: string;
+  code: string;
+  name?: string;
+  category?: string;
+  options?: string[];
+}
+
+export interface GetPlanResult {
+  plan: PlanCourse[][] | null;
+  error: string;
+  success: boolean;
+}
+
+export interface StorePlanResult {
+  success: boolean;
+  error: string;
+  message: string;
+}
+
+export interface DeletePlanResult {
+  success: boolean;
+  error: string;
+  message: string;
+}
+
+/**
+ * Server action to get user's plan
+ */
+export async function GetPlan(userId: string): Promise<GetPlanResult> {
+  try {
+    console.log('Server: Getting plan for user:', userId);
+    
+    // Create API client for staging environment
+    const client = new Client(Environment('staging'));
+    
+    console.log('Server: Sending request to get plan...');
+    
+    // Call the API to get user's plan
+    const response = await client.plan.GetPlan({ userId });
+    
+    console.log('Server: GetPlan API Response received:');
+    console.log('Server: Plan found:', response.plan ? 'Yes' : 'No');
+    console.log('Server: Error:', response.error);
+    
+    if (response.error) {
+      return {
+        plan: null,
+        error: response.error,
+        success: false
+      };
+    }
+    
+    return {
+      plan: response.plan?.planJson || null,
+      error: '',
+      success: !!response.plan
+    };
+    
+  } catch (error) {
+    console.error('Server: Error getting plan:', error);
+    
+    return {
+      plan: null,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      success: false
+    };
+  }
+}
+
+/**
+ * Server action to store user's plan
+ */
+export async function StorePlan(userId: string, planJson: PlanCourse[][]): Promise<StorePlanResult> {
+  try {
+    console.log('Server: Storing plan for user:', userId);
+    console.log('Server: Plan semesters:', planJson.length);
+    
+    // Create API client for staging environment
+    const client = new Client(Environment('staging'));
+    
+    // Prepare request payload
+    const request = {
+      userId: userId,
+      planJson: planJson
+    };
+    
+    console.log('Server: Sending request to store plan...');
+    
+    // Call the API to store user's plan
+    const response = await client.plan.StorePlan(request);
+    
+    console.log('Server: StorePlan API Response received:');
+    console.log('Server: Success:', response.success);
+    console.log('Server: Error:', response.error);
+    
+    return {
+      success: response.success,
+      error: response.error || '',
+      message: response.success ? 'Plan stored successfully' : 'Failed to store plan'
+    };
+    
+  } catch (error) {
+    console.error('Server: Error storing plan:', error);
+    
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      message: 'Failed to store plan'
+    };
+  }
+}
+
+/**
+ * Server action to delete user's plan
+ */
+export async function DeletePlan(userId: string): Promise<DeletePlanResult> {
+  try {
+    console.log('Server: Deleting plan for user:', userId);
+    const client = new Client(Environment('staging'));
+    console.log('Server: Sending request to delete plan...');
+    const response = await client.plan.DeletePlan({ userId });
+    
+    console.log('Server: DeletePlan API Response received:');
+    console.log('Server: Success:', response.success);
+    console.log('Server: Error:', response.error);
+    
+    return {
+      success: response.success,
+      error: response.error || '',
+      message: response.success ? 'Plan deleted successfully' : 'Failed to delete plan'
+    };
+    
+  } catch (error) {
+    console.error('Server: Error deleting plan:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      message: 'Failed to delete plan'
+    };
+  }
+}
+
 /**
  * Server action to parse and store transcript in one operation
  */

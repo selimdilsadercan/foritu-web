@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useUser, SignOutButton, UserButton } from '@clerk/nextjs';
-import { DeleteTranscript, ParseAndStoreTranscript } from '@/lib/actions';
+import { DeleteTranscript, ParseAndStoreTranscript, DeletePlan } from '@/lib/actions';
 
 interface TranscriptItem {
   semester: string;
@@ -50,7 +50,9 @@ export default function SemesterPanel({
   const { user } = useUser();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
+  const [showResetPlanConfirmation, setShowResetPlanConfirmation] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isResettingPlan, setIsResettingPlan] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -129,6 +131,30 @@ export default function SemesterPanel({
       } finally {
         setIsResetting(false);
         setShowResetConfirmation(false);
+      }
+    }
+  };
+
+  // Handle academic plan reset
+  const handleResetPlan = async () => {
+    if (user?.id) {
+      setIsResettingPlan(true);
+      try {
+        const result = await DeletePlan(user.id);
+        if (result.success) {
+          console.log('Client: Academic plan reset successfully:', result.message);
+          // Reload the page to refresh the plan data
+          window.location.reload();
+        } else {
+          console.error('Client: Failed to reset academic plan:', result.error);
+          alert('Failed to reset academic plan. Please try again.');
+        }
+      } catch (error) {
+        console.error('Client: Error resetting academic plan:', error);
+        alert('Failed to reset academic plan. Please try again.');
+      } finally {
+        setIsResettingPlan(false);
+        setShowResetPlanConfirmation(false);
       }
     }
   };
@@ -256,12 +282,12 @@ export default function SemesterPanel({
         {!hasTranscript && (
           <div className="space-y-3">
             {/* File Upload Button */}
-            <div className="text-center px-3 py-2 rounded-lg transition-all duration-200 bg-white hover:bg-gray-50 text-gray-700 border-2 border-dashed border-gray-300 hover:border-blue-300 hover:shadow-sm cursor-pointer">
+            <div className="text-center px-3 py-2 rounded-lg transition-all duration-200 bg-white hover:bg-gray-50 text-gray-900 border-2 border-dashed border-gray-300 hover:border-blue-300 hover:shadow-sm cursor-pointer">
               <label htmlFor="file-upload" className="flex items-center justify-center cursor-pointer">
                 <svg className="w-4 h-4 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                <span className="font-medium text-sm text-gray-800">
+                <span className="font-medium text-sm text-gray-900">
                   Upload Transcript
                 </span>
               </label>
@@ -270,7 +296,7 @@ export default function SemesterPanel({
                 type="file"
                 accept=".pdf"
                 onChange={handleFileSelect}
-                className="hidden"
+                className="hidden text-gray-900"
               />
             </div>
 
@@ -325,14 +351,14 @@ export default function SemesterPanel({
         )}
         {hasTranscript && (
           <button
-            className="w-full text-center px-3 py-2 rounded-lg transition-all duration-200 bg-white hover:bg-gray-50 text-gray-700 border-2 border-dashed border-gray-300 hover:border-blue-300 hover:shadow-sm cursor-pointer"
+            className="w-full text-center px-3 py-2 rounded-lg transition-all duration-200 bg-white hover:bg-gray-50 text-gray-900 border-2 border-dashed border-gray-300 hover:border-blue-300 hover:shadow-sm cursor-pointer"
             onClick={onAddNewSemester}
           >
             <div className="flex items-center justify-center">
               <svg className="w-4 h-4 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
-              <span className="font-medium text-sm text-gray-800">
+              <span className="font-medium text-sm text-gray-900">
                 Plan Next Semester
               </span>
             </div>
@@ -472,19 +498,33 @@ export default function SemesterPanel({
               {showUserMenu && (
                 <div className="absolute bottom-full left-0 right-0 mb-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
                   <div className="py-1">
-                                         {/* Reset My Transcript */}
-                     <button
-                       className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                       onClick={() => {
-                         setShowUserMenu(false);
-                         setShowResetConfirmation(true);
-                       }}
-                     >
-                       <svg className="w-4 h-4 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                       </svg>
-                       Reset Transcript
-                     </button>
+                    {/* Reset Academic Plan */}
+                    <button
+                      className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        setShowResetPlanConfirmation(true);
+                      }}
+                    >
+                      <svg className="w-4 h-4 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                      </svg>
+                      Reset Academic Plan
+                    </button>
+
+                    {/* Reset My Transcript */}
+                    <button
+                      className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        setShowResetConfirmation(true);
+                      }}
+                    >
+                      <svg className="w-4 h-4 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Reset Transcript
+                    </button>
                     
                     {/* Sign Out */}
                     <SignOutButton>
@@ -527,6 +567,34 @@ export default function SemesterPanel({
                   disabled={isResetting}
                 >
                   {isResetting ? 'Resetting...' : 'Reset Transcript'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Reset Academic Plan Confirmation Modal */}
+        {showResetPlanConfirmation && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Academic Plan Reset</h3>
+              <p className="text-sm text-gray-700 mb-4">
+                Are you sure you want to reset your academic plan? This action cannot be undone.
+              </p>
+              <div className="flex justify-end space-x-2">
+                <button
+                  className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-100"
+                  onClick={() => setShowResetPlanConfirmation(false)}
+                  disabled={isResettingPlan}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="px-4 py-2 text-sm text-red-600 border border-red-300 rounded-md hover:bg-red-50"
+                  onClick={handleResetPlan}
+                  disabled={isResettingPlan}
+                >
+                  {isResettingPlan ? 'Resetting...' : 'Reset Academic Plan'}
                 </button>
               </div>
             </div>
