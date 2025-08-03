@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useUser } from '@clerk/nextjs';
 import SemesterGrid from '@/components/SemesterGrid';
 import SemesterPanel from '@/components/SemesterPanel';
 import CoursePopup from '@/components/CoursePopup';
 import planData from '@/public/plan.json';
-import transcriptData from '@/public/transcript.json';
-import { parseTranscriptFromBase64 } from '@/lib/actions';
+import { parseTranscriptFromBase64, GetTranscript, StoreTranscript } from '@/lib/actions';
 
 // Type assertion for the plan data
 const typedPlanData = planData as any;
@@ -51,6 +51,7 @@ interface CourseInfo {
 }
 
 export default function Home() {
+  const { user } = useUser();
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
   const [popupOpen, setPopupOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<string>('');
@@ -58,8 +59,9 @@ export default function Home() {
   const [hasWarningIcon, setHasWarningIcon] = useState(false);
   const [coursesData, setCoursesData] = useState<CourseInfo[]>([]);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Load courses data from JSON file and initialize transcript from localStorage
+  // Load courses data from JSON file and get user's transcript
   useEffect(() => {
     const loadCoursesData = async () => {
       try {
@@ -71,33 +73,41 @@ export default function Home() {
       }
     };
 
-    // Load transcript from localStorage or use default data
-    const loadTranscript = () => {
-      const savedTranscript = localStorage.getItem('foritu-transcript');
-      if (savedTranscript) {
+    // Load user's transcript from API
+    const loadUserTranscript = async () => {
+      setIsLoading(true);
+      if (user?.id) {
         try {
-          setTranscript(JSON.parse(savedTranscript));
+          console.log('Client: Loading transcript for user:', user.id);
+          const result = await GetTranscript(user.id);
+          
+          if (result.success && result.courses.length > 0) {
+            console.log('Client: Successfully loaded transcript with', result.courses.length, 'courses');
+            setTranscript(result.courses);
+          } else {
+            console.log('Client: No transcript found or error occurred:', result.error);
+            setTranscript([]); // Use empty array instead of static data
+          }
         } catch (error) {
-          console.error('Error parsing saved transcript:', error);
-          setTranscript(transcriptData);
+          console.error('Client: Error loading user transcript:', error);
+          setTranscript([]); // Use empty array instead of static data
         }
       } else {
-        setTranscript(transcriptData);
+        console.log('Client: No user ID available, using empty transcript');
+        setTranscript([]);
       }
+      setIsLoading(false);
     };
 
     loadCoursesData();
-    loadTranscript();
-  }, []);
+    loadUserTranscript();
+  }, [user?.id]);
 
   const handleSemesterSelect = (semesterName: string) => {
     setSelectedSemester(semesterName);
   };
 
-  // Save transcript to localStorage
-  const saveTranscriptToStorage = (newTranscript: TranscriptItem[]) => {
-    localStorage.setItem('foritu-transcript', JSON.stringify(newTranscript));
-  };
+  // Note: No longer saving to localStorage - transcript is managed via API
 
   // Handle transcript upload
   const handleTranscriptUpload = async (file: File) => {
@@ -135,22 +145,37 @@ export default function Home() {
         return;
       }
       
-      if (result.courses.length > 0) {
-        // Convert server response courses to local format and add to transcript
-        const newCourses: TranscriptItem[] = result.courses.map(course => ({
-          semester: course.semester,
-          code: course.code,
-          name: course.name,
-          credits: course.credits,
-          grade: course.grade
-        }));
-        
-        const updatedTranscript = [...transcript, ...newCourses];
-        setTranscript(updatedTranscript);
-        saveTranscriptToStorage(updatedTranscript);
-        
-        alert(`Successfully parsed ${result.courses.length} courses from transcript!`);
-      } else {
+             if (result.courses.length > 0) {
+         // Convert server response courses to local format and add to transcript
+         const newCourses: TranscriptItem[] = result.courses.map(course => ({
+           semester: course.semester,
+           code: course.code,
+           name: course.name,
+           credits: course.credits,
+           grade: course.grade
+         }));
+         
+         const updatedTranscript = [...transcript, ...newCourses];
+         setTranscript(updatedTranscript);
+         
+         // Store the updated transcript via API
+         if (user?.id) {
+           try {
+             const storeResult = await StoreTranscript(user.id, result.courses);
+             if (storeResult.success) {
+               console.log('Client: Transcript stored successfully:', storeResult.message);
+             } else {
+               console.error('Client: Failed to store transcript:', storeResult.error);
+               alert('Warning: Transcript parsed but failed to save to server. Please try again.');
+             }
+           } catch (error) {
+             console.error('Client: Error storing transcript:', error);
+             alert('Warning: Transcript parsed but failed to save to server. Please try again.');
+           }
+         }
+         
+         alert(`Successfully parsed ${result.courses.length} courses from transcript!`);
+       } else {
         alert('No courses found in the transcript. Please check if the file contains valid transcript data.');
       }
       
@@ -228,10 +253,9 @@ export default function Home() {
         credits: '0',
         grade: '--'
       };
-      const updatedTranscript = [...transcript, placeholderCourse];
-      setTranscript(updatedTranscript);
-      saveTranscriptToStorage(updatedTranscript);
-      return;
+             const updatedTranscript = [...transcript, placeholderCourse];
+       setTranscript(updatedTranscript);
+       return;
     }
 
     // Get the latest semester
@@ -269,10 +293,9 @@ export default function Home() {
       grade: '--'
     };
     
-    // Update transcript state with the new semester
-    const updatedTranscript = [...transcript, placeholderCourse];
-    setTranscript(updatedTranscript);
-    saveTranscriptToStorage(updatedTranscript);
+         // Update transcript state with the new semester
+     const updatedTranscript = [...transcript, placeholderCourse];
+     setTranscript(updatedTranscript);
   };
 
   // Delete latest added semester
@@ -315,7 +338,6 @@ export default function Home() {
     }
     
     setTranscript(updatedTranscript);
-    saveTranscriptToStorage(updatedTranscript);
   };
 
   // Delete specific semester
@@ -353,7 +375,6 @@ export default function Home() {
     }
     
     setTranscript(updatedTranscript);
-    saveTranscriptToStorage(updatedTranscript);
   };
 
   // Function to normalize course codes (remove spaces for comparison)
@@ -364,7 +385,7 @@ export default function Home() {
   // Function to check if a prerequisite is satisfied
   const isPrerequisiteSatisfied = (prereqCode: string, minGrade: string): boolean => {
     const normalizedPrereqCode = normalizeCourseCode(prereqCode);
-    const courseHistory = filteredTranscript.filter(t => normalizeCourseCode(t.code) === normalizedPrereqCode);
+    const courseHistory = filteredTranscript.filter((t: TranscriptItem) => normalizeCourseCode(t.code) === normalizedPrereqCode);
     if (courseHistory.length === 0) return false;
     
     const latestGrade = courseHistory[courseHistory.length - 1].grade;
@@ -400,20 +421,20 @@ export default function Home() {
 
   // Get transcript data up to the selected semester
   const getTranscriptUpToSelected = () => {
-    if (!selectedSemester) return transcript;
+    if (!selectedSemester) return [];
     
-    // Get all unique semesters from transcript, sorted chronologically
-    const allSemesters = [...new Set(transcript.map(item => item.semester))];
-    const sortedSemesters = allSemesters.sort((a, b) => {
+    // Get all unique semesters from transcript and sort them
+    const semesters = [...new Set(transcript.map(item => item.semester))];
+    const sortedSemesters = semesters.sort((a, b) => {
       const getYear = (semester: string) => {
         const yearMatch = semester.match(/(\d{4})/);
         return yearMatch ? parseInt(yearMatch[1]) : 0;
       };
       
       const getSemesterOrder = (semester: string) => {
-        if (semester.includes('Güz')) return 1;
-        if (semester.includes('Bahar')) return 2;
-        if (semester.includes('Yaz')) return 3;
+        if (semester.includes('Fall')) return 1;
+        if (semester.includes('Spring')) return 2;
+        if (semester.includes('Summer')) return 3;
         return 0;
       };
       
@@ -427,7 +448,7 @@ export default function Home() {
     
     // Find the index of the selected semester
     const selectedIndex = sortedSemesters.indexOf(selectedSemester);
-    if (selectedIndex === -1) return transcriptData;
+    if (selectedIndex === -1) return [];
     
     // Get semesters up to and including the selected semester
     const semestersUpToSelected = sortedSemesters.slice(0, selectedIndex + 1);
@@ -442,9 +463,9 @@ export default function Home() {
     if (item.type === 'elective') {
       // For electives, check if there's an assigned course and use its grade for coloring
       const assignedCourse = getAssignedCourseForElective(item.name);
-      if (assignedCourse) {
-        const courseHistory = filteredTranscript.filter(t => t.code === assignedCourse.code);
-        if (courseHistory.length > 0) {
+             if (assignedCourse) {
+         const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === assignedCourse.code);
+         if (courseHistory.length > 0) {
           const latestGrade = courseHistory[courseHistory.length - 1].grade;
           if (latestGrade === '--') {
             return 'bg-blue-500'; // Currently taken
@@ -458,9 +479,9 @@ export default function Home() {
       return 'bg-purple-500'; // Default for electives with no assigned course
     }
     
-    // For courses, check if they have been taken and their grade
-    const courseHistory = filteredTranscript.filter(t => t.code === item.code);
-    if (courseHistory.length > 0) {
+         // For courses, check if they have been taken and their grade
+     const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === item.code);
+     if (courseHistory.length > 0) {
       const latestGrade = courseHistory[courseHistory.length - 1].grade;
       if (latestGrade === '--') {
         return 'bg-blue-500'; // Currently taken
@@ -486,7 +507,7 @@ export default function Home() {
     // Store the matched course code for the popup to use
     if (matchedCourseCode) {
       // We'll pass this information to the popup through the courseName parameter
-      const matchedCourse = transcriptData.find(t => t.code === matchedCourseCode);
+      const matchedCourse = transcript.find((t: TranscriptItem) => t.code === matchedCourseCode);
       if (matchedCourse) {
         // This will be used in the popup to show the matched course info
         setSelectedCourse(`${courseCode}|${matchedCourseCode}`);
@@ -496,7 +517,7 @@ export default function Home() {
 
   // Helper function to get the actual course name from transcript
   const getCourseNameFromTranscript = (courseCode: string) => {
-    const courseHistory = filteredTranscript.filter(t => t.code === courseCode);
+    const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === courseCode);
     if (courseHistory.length > 0) {
       return courseHistory[courseHistory.length - 1].name;
     }
@@ -506,7 +527,7 @@ export default function Home() {
   // Helper function to find a course by number part (e.g., "210" in "BLG210")
   const findCourseByNumber = (targetCourseCode: string, planCourseCodes: Set<string>) => {
     const targetNumber = targetCourseCode.replace(/[A-Z]/g, ''); // Extract number part
-    return filteredTranscript.find(t => {
+    return filteredTranscript.find((t: TranscriptItem) => {
       const courseNumber = t.code.replace(/[A-Z]/g, ''); // Extract number from transcript course
       // Only match if the transcript course is NOT already in the plan
       return courseNumber === targetNumber && !planCourseCodes.has(t.code);
@@ -528,7 +549,7 @@ export default function Home() {
     }
 
     // Get all taken courses that match this elective's options
-    const takenCoursesForThisElective = filteredTranscript.filter(item => 
+    const takenCoursesForThisElective = filteredTranscript.filter((item: TranscriptItem) => 
       electiveOptions.includes(item.code)
     );
 
@@ -544,7 +565,7 @@ export default function Home() {
       for (const item of semester) {
         if (item.type === 'elective') {
           const otherElectiveOptions = item.options || [];
-          const takenForOtherElective = filteredTranscript.filter(t => otherElectiveOptions.includes(t.code));
+          const takenForOtherElective = filteredTranscript.filter((t: TranscriptItem) => otherElectiveOptions.includes(t.code));
           
           // If this elective has exactly one taken course, assign it
           if (takenForOtherElective.length === 1) {
@@ -562,11 +583,11 @@ export default function Home() {
       for (const item of semester) {
         if (item.type === 'elective') {
           const otherElectiveOptions = item.options || [];
-          const takenForOtherElective = filteredTranscript.filter(t => otherElectiveOptions.includes(t.code));
+          const takenForOtherElective = filteredTranscript.filter((t: TranscriptItem) => otherElectiveOptions.includes(t.code));
           
           // If this elective has multiple taken courses, find one that's not assigned
           if (takenForOtherElective.length > 1) {
-            const availableCourse = takenForOtherElective.find(course => 
+            const availableCourse = takenForOtherElective.find((course: TranscriptItem) => 
               !globalAssignmentMap.has(course.code)
             );
             if (availableCourse) {
@@ -580,7 +601,7 @@ export default function Home() {
     // Check if any course is assigned to this specific elective
     for (const [courseCode, assignedElectiveName] of globalAssignmentMap) {
       if (assignedElectiveName === electiveName) {
-        return filteredTranscript.find(t => t.code === courseCode) || null;
+        return filteredTranscript.find((t: TranscriptItem) => t.code === courseCode) || null;
       }
     }
     
@@ -605,7 +626,7 @@ export default function Home() {
     // Group courses by code and get only the last attempt for each course
     const courseGroups = new Map<string, TranscriptItem[]>();
     
-    filteredTranscript.forEach(course => {
+    filteredTranscript.forEach((course: TranscriptItem) => {
       if (!courseGroups.has(course.code)) {
         courseGroups.set(course.code, []);
       }
@@ -659,7 +680,7 @@ export default function Home() {
     let totalGradePoints = 0;
     let totalGradedCredits = 0;
 
-    completedCourses.forEach(course => {
+    completedCourses.forEach((course: TranscriptItem) => {
       const grade = course.grade;
       const credits = parseFloat(course.credits || '0');
       
@@ -695,6 +716,17 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Loading Indicator */}
+      {isLoading && (
+        <div className="fixed inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600 text-lg font-medium">Loading your transcript...</p>
+            <p className="text-gray-500 text-sm mt-2">Please wait while we fetch your academic data</p>
+          </div>
+        </div>
+      )}
+
       {/* Main Content with Left Panel */}
       <div className="flex h-screen">
           {/* Left Panel */}
@@ -761,7 +793,7 @@ export default function Home() {
                             {item.type === 'course' ? (
                               (() => {
                                 // First check if the exact course code exists in filtered transcript
-                                const exactMatch = filteredTranscript.find(t => t.code === item.code);
+                                const exactMatch = filteredTranscript.find((t: TranscriptItem) => t.code === item.code);
                                 
                                 // If no exact match, try to find by number part
                                 const numberMatch = !exactMatch ? findCourseByNumber(item.code, planCourseCodes) : null;
@@ -785,7 +817,7 @@ export default function Home() {
                                     )}
                                     {(() => {
                                       if (displayCourse) {
-                                        const courseHistory = filteredTranscript.filter(t => t.code === displayCourse.code);
+                                        const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === displayCourse.code);
                                         if (courseHistory.length > 0) {
                                           const latestGrade = courseHistory[courseHistory.length - 1].grade;
                                           return (
@@ -813,7 +845,7 @@ export default function Home() {
                                 const assignedCourse = getAssignedCourseForElective(item.name);
                                 if (assignedCourse) {
                                   // Show the assigned course with elective category
-                                  const courseHistory = filteredTranscript.filter(t => t.code === assignedCourse.code);
+                                  const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === assignedCourse.code);
                                   const latestGrade = courseHistory.length > 0 ? courseHistory[courseHistory.length - 1].grade : '';
                                   
                                   return (

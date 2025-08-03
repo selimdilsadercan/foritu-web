@@ -376,40 +376,7 @@ export default function SemesterGrid({ plan, transcript = [] }: SemesterGridProp
 
   return (
     <div className="w-full max-w-7xl mx-auto p-6">
-            {/* Compact Progress Summary */}
-      <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-6">
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-600">Credits:</span>
-              <span className="text-lg font-bold text-blue-600">{progressMetrics.totalCredits}</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-600">Class:</span>
-              <span className="text-lg font-bold text-green-600">{progressMetrics.classStanding}</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-600">GPA:</span>
-              <span className="text-lg font-bold text-purple-600">{progressMetrics.gpa}</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-600">Courses:</span>
-              <span className="text-lg font-bold text-orange-600">{progressMetrics.completedCourses}</span>
-            </div>
-          </div>
-          <div className="flex items-center space-x-3">
-            <span className="text-sm text-gray-500">{progressMetrics.totalCredits}/120</span>
-            <div className="w-24 bg-gray-200 rounded-full h-2">
-              <div 
-                className="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${Math.min((progressMetrics.totalCredits / 120) * 100, 100)}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-6 mt-10">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-6">
         {plan.map((semester, semesterIndex) => (
           <div key={semesterIndex} className="space-y-3">
             <h2 className="text-lg font-semibold text-center text-gray-700 bg-gray-100 py-2 rounded-lg shadow-sm">

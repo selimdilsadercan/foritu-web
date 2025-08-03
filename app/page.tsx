@@ -56,8 +56,8 @@ export default function RootPage() {
                 <div className="mb-6">
                   <h1 className="text-3xl font-bold text-gray-900 mb-2">Foritu Web</h1>
                   <p className="text-gray-600">Course planning and transcript analysis</p>
-                </div>
-                
+              </div>
+
                 <div className="space-y-4">
                   <p className="text-gray-700">
                     Welcome to Foritu Web! This application helps you track your academic progress, 
