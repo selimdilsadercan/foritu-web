@@ -732,22 +732,32 @@ export default function Home() {
       
       // Take the first (most recent) attempt
       const lastAttempt = sortedAttempts[0];
-      if (lastAttempt.grade && lastAttempt.grade !== '--' && lastAttempt.grade !== 'VF') {
+      if (lastAttempt.grade && lastAttempt.grade !== '--') {
         lastAttempts.push(lastAttempt);
       }
     });
 
     const completedCourses = lastAttempts;
 
-    // Calculate total credits
-    const totalCredits = completedCourses.reduce((sum, course) => {
+    // Define passing grades
+    const passingGrades = ['AA', 'BA+', 'BA', 'BB+', 'BB', 'CB+', 'CB', 'CC+', 'CC', 'DC+', 'DC', 'DD+', 'DD', 'BL'];
+
+    // Filter for passed courses only
+    const passedCourses = completedCourses.filter(course => 
+      passingGrades.includes(course.grade)
+    );
+
+    // Calculate total credits (only from passed courses)
+    const totalCredits = passedCourses.reduce((sum, course) => {
       return sum + parseFloat(course.credits || '0');
     }, 0);
 
     // Calculate GPA
     const gradePoints = {
-      'AA': 4.0, 'BA': 3.5, 'BB': 3.0, 'CB': 2.5, 'CC': 2.0, 
-      'DC': 1.5, 'DD': 1.0, 'FD': 0.5, 'FF': 0.0, 'BL': 0.0
+      'AA': 4.0, 'BA+': 3.75, 'BA': 3.5, 'BB+': 3.25, 'BB': 3.0, 
+      'CB+': 2.75, 'CB': 2.5, 'CC+': 2.25, 'CC': 2.0, 
+      'DC+': 1.75, 'DC': 1.5, 'DD+': 1.25, 'DD': 1.0, 
+      'FD': 0.5, 'FF': 0.0, 'VF': 0.0, 'BL': 0.0
     };
 
     let totalGradePoints = 0;
@@ -764,6 +774,23 @@ export default function Home() {
     });
 
     const gpa = totalGradedCredits > 0 ? totalGradePoints / totalGradedCredits : 0;
+
+    // Debug logging
+    console.log('GPA Calculation Debug:', {
+      totalCourses: completedCourses.length,
+      passedCourses: passedCourses.length,
+      totalCredits,
+      totalGradePoints,
+      totalGradedCredits,
+      gpa,
+      allCourses: completedCourses.map(c => ({
+        code: c.code,
+        grade: c.grade,
+        credits: c.credits,
+        gradePoints: gradePoints[c.grade as keyof typeof gradePoints],
+        passed: passingGrades.includes(c.grade)
+      }))
+    });
 
     // Determine class standing based on credits
     let classStanding = '';
