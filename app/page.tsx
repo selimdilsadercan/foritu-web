@@ -3,6 +3,7 @@
 import { SignedIn, SignedOut, SignInButton, SignUpButton } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import AdSense from '@/components/AdSense';
 
 export default function RootPage() {
   const router = useRouter();
@@ -49,6 +50,11 @@ export default function RootPage() {
             </div>
           </header>
           
+          {/* Top Ad */}
+          <div className="bg-white py-4 px-4 lg:px-6 border-b">
+            <AdSense adSlot="YOUR_TOP_AD_SLOT" className="text-center" />
+          </div>
+          
           {/* Main Content */}
           <div className="flex items-center justify-center min-h-[calc(100vh-80px)] bg-gradient-to-br from-blue-50 to-indigo-100">
             <div className="max-w-md w-full mx-auto p-4 lg:p-8">
@@ -75,12 +81,22 @@ export default function RootPage() {
                     </ul>
                   </div>
                   
+                  {/* Middle Ad */}
+                  <div className="py-4">
+                    <AdSense adSlot="YOUR_MIDDLE_AD_SLOT" className="text-center" />
+                  </div>
+                  
                   <p className="text-sm text-gray-500">
                     Please sign in to access your personalized course planning dashboard.
                   </p>
                 </div>
               </div>
             </div>
+          </div>
+          
+          {/* Bottom Ad */}
+          <div className="bg-white py-4 px-4 lg:px-6 border-t">
+            <AdSense adSlot="YOUR_BOTTOM_AD_SLOT" className="text-center" />
           </div>
         </div>
       </SignedOut>

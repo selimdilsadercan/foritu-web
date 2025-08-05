@@ -45,3 +45,29 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
 }
+
+/* AdSense Styles */
+.adsense-container {
+  min-height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+
+.adsense-container ins {
+  min-height: 90px;
+}
+
+/* Responsive AdSense */
+@media (max-width: 768px) {
+  .adsense-container {
+    min-height: 60px;
+  }
+  
+  .adsense-container ins {
+    min-height: 60px;
+  }
+}
