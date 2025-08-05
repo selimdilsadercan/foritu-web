@@ -36,6 +36,14 @@ interface SemesterPanelProps {
   onDeleteSemester: (semesterName: string) => void;
   onUploadTranscript: (file: File) => Promise<void>;
   onClose?: () => void; // Add optional close handler for mobile
+  onMarkChangesAsUnsaved?: () => void; // Callback to mark changes as unsaved
+  onShowResetConfirmation?: () => void; // Callback to show reset transcript confirmation
+  onShowResetPlanConfirmation?: () => void; // Callback to show reset plan confirmation
+  isResetting?: boolean; // Whether transcript reset is in progress
+  isResettingPlan?: boolean; // Whether plan reset is in progress
+  hasUnsavedChanges?: boolean; // Whether there are unsaved changes
+  onSaveChanges?: () => void; // Callback to save changes
+  isSaving?: boolean; // Whether saving is in progress
 }
 
 export default function SemesterPanel({ 
@@ -47,14 +55,18 @@ export default function SemesterPanel({
   onDeleteLatestSemester,
   onDeleteSemester,
   onUploadTranscript,
-  onClose
+  onClose,
+  onMarkChangesAsUnsaved,
+  onShowResetConfirmation,
+  onShowResetPlanConfirmation,
+  isResetting = false,
+  isResettingPlan = false,
+  hasUnsavedChanges = false,
+  onSaveChanges,
+  isSaving = false
 }: SemesterPanelProps) {
   const { user } = useUser();
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showResetConfirmation, setShowResetConfirmation] = useState(false);
-  const [showResetPlanConfirmation, setShowResetPlanConfirmation] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
-  const [isResettingPlan, setIsResettingPlan] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -116,7 +128,6 @@ export default function SemesterPanel({
   // Handle transcript reset
   const handleResetTranscript = async () => {
     if (user?.id) {
-      setIsResetting(true);
       try {
         const result = await DeleteTranscript(user.id);
         if (result.success) {
@@ -130,9 +141,6 @@ export default function SemesterPanel({
       } catch (error) {
         console.error('Client: Error resetting transcript:', error);
         alert('Failed to reset transcript. Please try again.');
-      } finally {
-        setIsResetting(false);
-        setShowResetConfirmation(false);
       }
     }
   };
@@ -140,7 +148,6 @@ export default function SemesterPanel({
   // Handle academic plan reset
   const handleResetPlan = async () => {
     if (user?.id) {
-      setIsResettingPlan(true);
       try {
         const result = await DeletePlan(user.id);
         if (result.success) {
@@ -154,11 +161,13 @@ export default function SemesterPanel({
       } catch (error) {
         console.error('Client: Error resetting academic plan:', error);
         alert('Failed to reset academic plan. Please try again.');
-      } finally {
-        setIsResettingPlan(false);
-        setShowResetPlanConfirmation(false);
       }
     }
+  };
+
+  // Function to mark changes as unsaved (call this when user makes changes)
+  const markChangesAsUnsaved = () => {
+    onMarkChangesAsUnsaved?.();
   };
 
   // Close dropdown when clicking outside
@@ -214,8 +223,9 @@ export default function SemesterPanel({
       const semester = semesters[i];
       const semesterCourses = transcript.filter(item => item.semester === semester);
       const isPlannedSemester = semesterCourses.length === 1 && semesterCourses[0].code === 'PLACEHOLDER';
+      const isPlannedSemesterByName = semester.includes('Planı');
       
-      if (!isPlannedSemester) {
+      if (!isPlannedSemester && !isPlannedSemesterByName) {
         return semester; // Return the first (most recent) non-planned semester
       }
     }
@@ -372,7 +382,10 @@ export default function SemesterPanel({
           {hasTranscript && (
             <button
               className="w-full text-center px-3 py-2 rounded-lg transition-all duration-200 bg-white hover:bg-gray-50 text-gray-900 border-2 border-dashed border-gray-300 hover:border-blue-300 hover:shadow-sm cursor-pointer"
-              onClick={onAddNewSemester}
+              onClick={() => {
+                onAddNewSemester();
+                markChangesAsUnsaved();
+              }}
             >
               <div className="flex items-center justify-center">
                 <svg className="w-4 h-4 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -390,9 +403,16 @@ export default function SemesterPanel({
             const isSelected = selectedSemester === semester;
             const isCurrentSemester = semester === currentSemester;
             
-            // Check if this is a planned semester (has only placeholder course)
+            // Check if this is a planned semester (has only placeholder course or ends with "Planı")
             const semesterCourses = transcript.filter(item => item.semester === semester);
-            const isPlannedSemester = semesterCourses.length === 1 && semesterCourses[0].code === 'PLACEHOLDER';
+            const isPlannedSemester = (semesterCourses.length === 1 && semesterCourses[0].code === 'PLACEHOLDER') || semester.includes('Planı');
+            
+            // Find the latest plan (first planned semester in the sorted list)
+            const plannedSemesters = semesters.filter(s => {
+              const sCourses = transcript.filter(item => item.semester === s);
+              return (sCourses.length === 1 && sCourses[0].code === 'PLACEHOLDER') || s.includes('Planı');
+            });
+            const isLatestPlan = plannedSemesters.length > 0 && semester === plannedSemesters[0];
             
             // Format semester name for planned semesters
             const formatSemesterName = (semesterName: string) => {
@@ -450,18 +470,25 @@ export default function SemesterPanel({
                     )}
                   </div>
                 </button>
-                {isPlannedSemester && (
+                {isPlannedSemester && isLatestPlan && (
                   <button
-                    className="absolute top-1 right-1 p-1 rounded-full hover:bg-red-100 transition-colors"
+                    className={`absolute top-1/2 right-1 transform -translate-y-1/2 p-1 rounded-full transition-colors ${
+                      isSelected 
+                        ? 'hover:bg-red-500 hover:bg-opacity-20' 
+                        : 'hover:bg-red-100'
+                    }`}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (window.confirm(`Are you sure you want to delete "${formatSemesterName(semester)}"?`)) {
                         onDeleteSemester(semester);
+                        markChangesAsUnsaved();
                       }
                     }}
                     title="Delete semester"
                   >
-                    <svg className="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className={`w-3 h-3 ${
+                      isSelected ? 'text-white' : 'text-red-600'
+                    }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
                   </button>
@@ -528,7 +555,7 @@ export default function SemesterPanel({
                     className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
                     onClick={() => {
                       setShowUserMenu(false);
-                      setShowResetPlanConfirmation(true);
+                      onShowResetPlanConfirmation?.();
                     }}
                   >
                     <svg className="w-4 h-4 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -542,7 +569,7 @@ export default function SemesterPanel({
                     className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
                     onClick={() => {
                       setShowUserMenu(false);
-                      setShowResetConfirmation(true);
+                      onShowResetConfirmation?.();
                     }}
                   >
                     <svg className="w-4 h-4 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -570,61 +597,9 @@ export default function SemesterPanel({
         </div>
       </div>
       
-      {/* Reset Transcript Confirmation Modal */}
-      {showResetConfirmation && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Transcript Reset</h3>
-            <p className="text-sm text-gray-700 mb-4">
-              Are you sure you want to reset your transcript? This action cannot be undone.
-            </p>
-            <div className="flex justify-end space-x-2">
-              <button
-                className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-100"
-                onClick={() => setShowResetConfirmation(false)}
-                disabled={isResetting}
-              >
-                Cancel
-              </button>
-              <button
-                className="px-4 py-2 text-sm text-red-600 border border-red-300 rounded-md hover:bg-red-50"
-                onClick={handleResetTranscript}
-                disabled={isResetting}
-              >
-                {isResetting ? 'Resetting...' : 'Reset Transcript'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Reset Academic Plan Confirmation Modal */}
-      {showResetPlanConfirmation && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Academic Plan Reset</h3>
-            <p className="text-sm text-gray-700 mb-4">
-              Are you sure you want to reset your academic plan? This action cannot be undone.
-            </p>
-            <div className="flex justify-end space-x-2">
-              <button
-                className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-100"
-                onClick={() => setShowResetPlanConfirmation(false)}
-                disabled={isResettingPlan}
-              >
-                Cancel
-              </button>
-              <button
-                className="px-4 py-2 text-sm text-red-600 border border-red-300 rounded-md hover:bg-red-50"
-                onClick={handleResetPlan}
-                disabled={isResettingPlan}
-              >
-                {isResettingPlan ? 'Resetting...' : 'Reset Academic Plan'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
+
     </div>
   );
 } 

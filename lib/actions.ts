@@ -28,6 +28,12 @@ export interface StoreTranscriptResult {
   message: string;
 }
 
+export interface UpdateTranscriptResult {
+  success: boolean;
+  error: string;
+  message: string;
+}
+
 export interface DeleteTranscriptResult {
   success: boolean;
   error: string;
@@ -89,32 +95,11 @@ export async function parseTranscriptFromBase64(base64Data: string): Promise<Par
  */
 export async function GetTranscript(userId: string): Promise<GetTranscriptResult> {
   try {
-    console.log('Server: Getting transcript for user:', userId);
-    
     // Create API client for staging environment
     const client = new Client(Environment('staging'));
     
-    console.log('Server: Sending request to get transcript...');
-    
     // Call the API to get user's transcript
     const response = await client.transcript.GetTranscript(userId);
-    
-    console.log('Server: GetTranscript API Response received:');
-    console.log('Server: Transcript found:', response.transcript ? 'Yes' : 'No');
-    
-    // Log each course if available
-    if (response.transcript?.courses) {
-      console.log('Server: Courses found:', response.transcript.courses.length);
-      response.transcript.courses.forEach((course, index) => {
-        console.log(`Server: Course ${index + 1}:`, {
-          semester: course.semester,
-          code: course.code,
-          name: course.name,
-          credits: course.credits,
-          grade: course.grade
-        });
-      });
-    }
     
     return {
       courses: response.transcript?.courses || [],
@@ -138,9 +123,6 @@ export async function GetTranscript(userId: string): Promise<GetTranscriptResult
  */
 export async function StoreTranscript(userId: string, courses: TranscriptCourse[]): Promise<StoreTranscriptResult> {
   try {
-    console.log('Server: Storing transcript for user:', userId);
-    console.log('Server: Courses to store:', courses.length);
-    
     // Create API client for staging environment
     const client = new Client(Environment('staging'));
     
@@ -150,14 +132,8 @@ export async function StoreTranscript(userId: string, courses: TranscriptCourse[
       courses: courses
     };
     
-    console.log('Server: Sending request to store transcript...');
-    
     // Call the API to store user's transcript
     const response = await client.transcript.StoreTranscript(request);
-    
-    console.log('Server: StoreTranscript API Response received:');
-    console.log('Server: Message:', response.message);
-    console.log('Server: User ID:', response.userId);
     
     return {
       success: true,
@@ -172,6 +148,48 @@ export async function StoreTranscript(userId: string, courses: TranscriptCourse[
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred',
       message: ''
+    };
+  }
+}
+
+/**
+ * Server action to update user's transcript
+ */
+export async function UpdateTranscript(userId: string, courses: TranscriptCourse[]): Promise<UpdateTranscriptResult> {
+  try {
+    console.log('Server: Updating transcript for user:', userId);
+    console.log('Server: Courses to update:', courses.length);
+    
+    // Create API client for staging environment
+    const client = new Client(Environment('staging'));
+    
+    // Prepare request payload
+    const request = {
+      courses: courses
+    };
+    
+    console.log('Server: Sending request to update transcript...');
+    
+    // Call the API to update user's transcript
+    const response = await client.transcript.UpdateTranscript(userId, request);
+    
+    console.log('Server: UpdateTranscript API Response received:');
+    console.log('Server: Message:', response.message);
+    console.log('Server: User ID:', response.userId);
+    
+    return {
+      success: true,
+      error: '',
+      message: response.message
+    };
+    
+  } catch (error) {
+    console.error('Server: Error updating transcript:', error);
+    
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      message: 'Failed to update transcript'
     };
   }
 }

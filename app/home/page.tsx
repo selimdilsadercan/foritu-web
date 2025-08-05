@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useUser } from '@clerk/nextjs';
 import SemesterGrid from '@/components/SemesterGrid';
 import SemesterPanel from '@/components/SemesterPanel';
@@ -55,6 +55,7 @@ export default function Home() {
   const [isSelectedElective, setIsSelectedElective] = useState(false);
   const [hasWarningIcon, setHasWarningIcon] = useState(false);
   const [coursesData, setCoursesData] = useState<CourseInfo[]>([]);
+  const [courseMappings, setCourseMappings] = useState<Record<string, string[]>>({});
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isPlanLoading, setIsPlanLoading] = useState(false);
@@ -62,14 +63,26 @@ export default function Home() {
   const [selectedPlan, setSelectedPlan] = useState<SemesterItem[][]>([]);
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showResetConfirmation, setShowResetConfirmation] = useState(false);
+  const [showResetPlanConfirmation, setShowResetPlanConfirmation] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [isResettingPlan, setIsResettingPlan] = useState(false);
+  const [lastSavedTranscript, setLastSavedTranscript] = useState<TranscriptItem[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Load courses data from JSON file and get user's data in correct order
   useEffect(() => {
     const loadCoursesData = async () => {
       try {
-        const response = await fetch('/courses.json');
-        const data = await response.json();
-        setCoursesData(data);
+        // Load courses data
+        const coursesResponse = await fetch('/courses.json');
+        const coursesData = await coursesResponse.json();
+        setCoursesData(coursesData);
+        
+        // Load course mappings
+        const mappingsResponse = await fetch('/course-mappings.json');
+        const mappingsData = await mappingsResponse.json();
+        setCourseMappings(mappingsData);
       } catch (error) {
         console.error('Error loading courses data:', error);
       }
@@ -134,16 +147,21 @@ export default function Home() {
           
           if (result.success && result.courses.length > 0) {
             setTranscript(result.courses);
+            // Initialize last saved transcript to current state
+            setLastSavedTranscript(result.courses);
           } else {
             setTranscript([]); // Use empty array instead of static data
+            setLastSavedTranscript([]);
           }
         } catch (error) {
           console.error('Client: Error loading user transcript:', error);
           setTranscript([]); // Use empty array instead of static data
+          setLastSavedTranscript([]);
         }
       } else {
         console.log('Client: No user ID available, using empty transcript');
         setTranscript([]);
+        setLastSavedTranscript([]);
       }
       setIsLoading(false);
     };
@@ -174,6 +192,66 @@ export default function Home() {
     }
   }, [selectedPlan.length, isLoading, isPlanLoading, planLoaded]);
 
+  // Function to add a single course to transcript as a new attempt
+  const addCourseToTranscript = (courseCode?: string) => {
+    if (!courseCode) {
+      console.error('No course code provided for adding to transcript');
+      return;
+    }
+
+    if (!selectedSemester) {
+      console.error('No semester selected for adding course');
+      return;
+    }
+
+    // Handle courseCode that might contain pipe separator (e.g., "BLG210|BLG210E")
+    const codeToUse = courseCode.split('|')[0];
+    
+    // Don't normalize - keep the space in course code (e.g., "BLG 102")
+    const actualCourseCode = codeToUse;
+    
+    // Get course info from courses.json using the actual course code with space
+    const courseInfo = coursesData.find(course => course.code === actualCourseCode);
+    
+    if (!courseInfo) {
+      console.error('Course not found in courses.json:', actualCourseCode);
+      alert(`Course ${actualCourseCode} not found in course database`);
+      return;
+    }
+    
+    const courseName = courseInfo.name;
+    const courseCredits = courseInfo.credits || '3';
+
+    console.log('Course info found:', { courseInfo, courseName, courseCredits });
+
+    // Add the course to transcript as a new attempt
+    const newCourse: TranscriptItem = {
+      semester: selectedSemester,
+      code: actualCourseCode,
+      name: courseName,
+      credits: courseCredits,
+      grade: '--' // Planned grade
+    };
+
+    console.log('Adding new course to transcript:', newCourse);
+    setTranscript(prev => {
+      const updated = [...prev, newCourse];
+      console.log('Updated transcript:', updated);
+      return updated;
+    });
+  };
+
+  const deleteAttempt = (courseCode: string, semester: string) => {
+    setTranscript(prev => {
+      const updated = prev.filter(attempt => 
+        !(attempt.code === courseCode && attempt.semester === semester)
+      );
+      console.log('Deleted attempt:', { courseCode, semester });
+      console.log('Updated transcript:', updated);
+      return updated;
+    });
+  };
+
   const handleSemesterSelect = (semesterName: string) => {
     setSelectedSemester(semesterName);
   };
@@ -194,7 +272,7 @@ export default function Home() {
         return;
       }
       
-             if (result.courses.length > 0) {
+         if (result.courses.length > 0) {
          // Convert server response courses to local format and add to transcript
          const newCourses: TranscriptItem[] = result.courses.map(course => ({
            semester: course.semester,
@@ -223,7 +301,7 @@ export default function Home() {
            }
          }
          
-         alert(`Successfully parsed ${result.courses.length} courses from transcript!`);
+                   // Successfully parsed courses - no alert needed
        } else {
         alert('No courses found in the transcript. Please check if the file contains valid transcript data.');
       }
@@ -319,17 +397,17 @@ export default function Home() {
     let newEndYear = endYear;
     let newSemesterType = '';
     
-    if (latestSemester.includes('Güz')) {
-      newSemesterType = 'Bahar';
-    } else if (latestSemester.includes('Bahar')) {
-      newSemesterType = 'Yaz';
-    } else if (latestSemester.includes('Yaz')) {
-      newSemesterType = 'Güz';
-      newStartYear = startYear + 1;
-      newEndYear = endYear + 1;
-    }
-    
-    const newSemester = `${newStartYear}-${newEndYear} ${newSemesterType} Dönemi`;
+         if (latestSemester.includes('Güz')) {
+       newSemesterType = 'Bahar';
+     } else if (latestSemester.includes('Bahar')) {
+       newSemesterType = 'Yaz';
+     } else if (latestSemester.includes('Yaz')) {
+       newSemesterType = 'Güz';
+       newStartYear = startYear + 1;
+       newEndYear = endYear + 1;
+     }
+     
+     const newSemester = `${newStartYear}-${newEndYear} ${newSemesterType} Planı`;
     
     // Add a placeholder course to make the semester appear in the list
     const placeholderCourse: TranscriptItem = {
@@ -424,26 +502,247 @@ export default function Home() {
     setTranscript(updatedTranscript);
   };
 
-  // Function to normalize course codes (remove spaces for comparison)
-  const normalizeCourseCode = (code: string): string => {
-    return code.replace(/\s+/g, '');
+  // Handle transcript reset
+  const handleResetTranscript = async () => {
+    if (user?.id) {
+      setIsResetting(true);
+      try {
+        const { DeleteTranscript } = await import('@/lib/actions');
+        const result = await DeleteTranscript(user.id);
+        if (result.success) {
+          console.log('Client: Transcript reset successfully:', result.message);
+          // Reload the page to refresh the transcript data
+          window.location.reload();
+        } else {
+          console.error('Client: Failed to reset transcript:', result.error);
+          alert('Failed to reset transcript. Please try again.');
+        }
+      } catch (error) {
+        console.error('Client: Error resetting transcript:', error);
+        alert('Failed to reset transcript. Please try again.');
+      } finally {
+        setIsResetting(false);
+        setShowResetConfirmation(false);
+      }
+    }
+  };
+
+  // Handle academic plan reset
+  const handleResetPlan = async () => {
+    if (user?.id) {
+      setIsResettingPlan(true);
+      try {
+        const { DeletePlan } = await import('@/lib/actions');
+        const result = await DeletePlan(user.id);
+        if (result.success) {
+          console.log('Client: Academic plan reset successfully:', result.message);
+          // Reload the page to refresh the plan data
+          window.location.reload();
+        } else {
+          console.error('Client: Failed to reset academic plan:', result.error);
+          alert('Failed to reset academic plan. Please try again.');
+        }
+      } catch (error) {
+        console.error('Client: Error resetting academic plan:', error);
+        alert('Failed to reset academic plan. Please try again.');
+      } finally {
+        setIsResettingPlan(false);
+        setShowResetPlanConfirmation(false);
+      }
+    }
+  };
+
+  // Check if there are unsaved changes by comparing current transcript with last saved
+  const hasUnsavedChanges = () => {
+    console.log('Checking for unsaved changes...');
+    console.log('Current transcript length:', transcript.length);
+    console.log('Last saved transcript length:', lastSavedTranscript.length);
+    
+    if (lastSavedTranscript.length === 0) {
+      // If no last saved transcript, consider current state as "saved"
+      console.log('No last saved transcript, returning false');
+      return false;
+    }
+    
+    // Deep comparison of transcripts
+    if (transcript.length !== lastSavedTranscript.length) {
+      console.log('Transcript lengths differ, returning true');
+      return true;
+    }
+    
+    // Compare each transcript item
+    for (let i = 0; i < transcript.length; i++) {
+      const current = transcript[i];
+      const saved = lastSavedTranscript[i];
+      
+      if (current.semester !== saved.semester ||
+          current.code !== saved.code ||
+          current.name !== saved.name ||
+          current.credits !== saved.credits ||
+          current.grade !== saved.grade) {
+        console.log('Found difference at index', i, 'returning true');
+        return true;
+      }
+    }
+    
+    console.log('No differences found, returning false');
+    return false;
+  };
+
+  // Handle saving transcript changes
+  const handleSaveChanges = async () => {
+    if (!user?.id) return;
+
+    setIsSaving(true);
+    try {
+      console.log('Saving transcript changes...');
+      
+      // Call the UpdateTranscript action
+      const { UpdateTranscript } = await import('@/lib/actions');
+      const result = await UpdateTranscript(user.id, transcript);
+      
+      if (result.success) {
+        // Update the last saved transcript to current state
+        setLastSavedTranscript([...transcript]);
+        console.log('Transcript changes saved successfully:', result.message);
+        
+        // Show success message
+        alert('Changes saved successfully!');
+      } else {
+        console.error('Failed to save transcript changes:', result.error);
+        alert(`Failed to save changes: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error saving transcript changes:', error);
+      alert('Failed to save changes. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Handle canceling changes - revert to last saved state
+  const handleCancelChanges = () => {
+    if (window.confirm('Are you sure you want to cancel all changes? This will revert to the last saved state.')) {
+      console.log('Canceling changes, reverting to last saved state...');
+      setTranscript([...lastSavedTranscript]);
+      console.log('Changes canceled, transcript reverted');
+    }
+  };
+
+  // Test function to simulate changes (temporary for debugging)
+  const testAddChange = () => {
+    const testCourse: TranscriptItem = {
+      semester: 'Test Semester',
+      code: 'TEST101',
+      name: 'Test Course',
+      credits: '3',
+      grade: '--'
+    };
+    setTranscript(prev => [...prev, testCourse]);
+    console.log('Added test course, should show save button now');
   };
 
   // Function to check if a prerequisite is satisfied
   const isPrerequisiteSatisfied = (prereqCode: string, minGrade: string): boolean => {
-    const normalizedPrereqCode = normalizeCourseCode(prereqCode);
-    const courseHistory = filteredTranscript.filter((t: TranscriptItem) => normalizeCourseCode(t.code) === normalizedPrereqCode);
+    const allAvailableCourses = getAllAvailableCourses();
+    
+    // First check for exact match (with and without spaces)
+    let courseHistory = allAvailableCourses.filter((t: TranscriptItem) => t.code === prereqCode);
+    
+    // If no exact match, also check with spaces removed
+    if (courseHistory.length === 0) {
+      const prereqCodeNoSpaces = prereqCode.replace(/\s+/g, '');
+      courseHistory = allAvailableCourses.filter((t: TranscriptItem) => t.code.replace(/\s+/g, '') === prereqCodeNoSpaces);
+    }
+    
+    // If no exact match, try to find equivalent course using course mappings
+    if (courseHistory.length === 0) {
+      // Check if the target course has explicit mappings in course-mappings.json
+      const alternatives = courseMappings[prereqCode] || [];
+      
+      // Look for any of the alternative courses in the available courses
+      for (const alternativeCode of alternatives) {
+        const equivalentMatch = allAvailableCourses.find((t: TranscriptItem) => t.code === alternativeCode);
+        if (equivalentMatch) {
+          courseHistory = allAvailableCourses.filter((t: TranscriptItem) => t.code === equivalentMatch.code);
+          break;
+        }
+      }
+    }
+    
     if (courseHistory.length === 0) return false;
     
-    const latestGrade = courseHistory[courseHistory.length - 1].grade;
-    if (latestGrade === '--') return false; // Currently taken
+    // Get the latest attempt for this prerequisite course
+    const latestAttempt = courseHistory[courseHistory.length - 1];
+    const latestGrade = latestAttempt.grade;
     
-    // Grade comparison logic - based on transcript grades
-    const gradeOrder = ['FF', 'FD', 'VF', 'DD', 'DD+', 'DC', 'DC+', 'CC', 'CC+', 'CB', 'CB+', 'BB', 'BB+', 'BA', 'BA+', 'AA', 'BL'];
-    const latestGradeIndex = gradeOrder.indexOf(latestGrade);
-    const minGradeIndex = gradeOrder.indexOf(minGrade);
+    // If the latest grade is not "--", use it directly
+    if (latestGrade !== '--') {
+      // Grade comparison logic - based on transcript grades
+      const gradeOrder = ['FF', 'FD', 'VF', 'DD', 'DD+', 'DC', 'DC+', 'CC', 'CC+', 'CB', 'CB+', 'BB', 'BB+', 'BA', 'BA+', 'AA', 'BL'];
+      const latestGradeIndex = gradeOrder.indexOf(latestGrade);
+      const minGradeIndex = gradeOrder.indexOf(minGrade);
+      
+      return latestGradeIndex >= minGradeIndex;
+    }
     
-    return latestGradeIndex >= minGradeIndex;
+    // If the latest grade is "--" (planned), check if we're viewing a semester after it
+    if (selectedSemester && latestAttempt.semester !== selectedSemester) {
+      // For planned courses, we need to check if the selected semester comes after the planned semester
+      const plannedSemester = latestAttempt.semester;
+      
+      // If the planned semester is from the plan (e.g., "Semester 1"), we need to compare differently
+      if (plannedSemester.startsWith('Semester ')) {
+        // Extract semester number from plan
+        const planSemesterNum = parseInt(plannedSemester.replace('Semester ', ''));
+        
+        // Extract semester number from selected semester
+        const selectedSemesterNum = parseInt(selectedSemester.replace(/[^0-9]/g, ''));
+        
+        // If selected semester is after the planned semester, consider it as passed
+        if (selectedSemesterNum > planSemesterNum) {
+          // Grade comparison logic for planned courses (assumed pass)
+          const gradeOrder = ['FF', 'FD', 'VF', 'DD', 'DD+', 'DC', 'DC+', 'CC', 'CC+', 'CB', 'CB+', 'BB', 'BB+', 'BA', 'BA+', 'AA', 'BL'];
+          const minGradeIndex = gradeOrder.indexOf(minGrade);
+          
+          // Planned courses are considered as passing with "CC" grade
+          const assumedGradeIndex = gradeOrder.indexOf('CC');
+          
+          return assumedGradeIndex >= minGradeIndex;
+        }
+      } else {
+        // For regular transcript semesters, use the existing logic
+        const getSemesterOrder = (semester: string) => {
+          const yearMatch = semester.match(/(\d{4})/);
+          if (!yearMatch) return 0;
+          const year = parseInt(yearMatch[1]);
+          
+          let semesterOrder = 1; // Güz
+          if (semester.includes('Bahar')) semesterOrder = 2;
+          else if (semester.includes('Yaz')) semesterOrder = 3;
+          
+          return year * 10 + semesterOrder;
+        };
+        
+        const plannedOrder = getSemesterOrder(plannedSemester);
+        const selectedOrder = getSemesterOrder(selectedSemester);
+        
+        // If selected semester is after the planned semester, consider it as passed
+        if (selectedOrder > plannedOrder) {
+          // Grade comparison logic for "?" grade (assumed pass)
+          const gradeOrder = ['FF', 'FD', 'VF', 'DD', 'DD+', 'DC', 'DC+', 'CC', 'CC+', 'CB', 'CB+', 'BB', 'BB+', 'BA', 'BA+', 'AA', 'BL'];
+          const minGradeIndex = gradeOrder.indexOf(minGrade);
+          
+          // "?" grade is considered as a passing grade, so it should satisfy most prerequisites
+          // We'll treat it as equivalent to "CC" (minimum passing grade)
+          const assumedGradeIndex = gradeOrder.indexOf('CC');
+          
+          return assumedGradeIndex >= minGradeIndex;
+        }
+      }
+    }
+    
+    return false; // Currently taken or not yet taken
   };
 
   // Function to check if a prerequisite group is satisfied (at least one course in group)
@@ -506,6 +805,97 @@ export default function Home() {
 
   const filteredTranscript = getTranscriptUpToSelected();
 
+  // Helper function to get all available courses (transcript + planned) up to selected semester
+  const getAllAvailableCourses = () => {
+    const availableCourses: TranscriptItem[] = [...filteredTranscript];
+    
+    // Add planned courses from the selected plan
+    if (selectedPlan.length > 0) {
+      // Get all courses from the plan that are not already in the transcript
+      selectedPlan.forEach((semester: SemesterItem[], semesterIndex: number) => {
+        semester.forEach((item: SemesterItem) => {
+          if (item.type === 'course') {
+            // Check if this course is already in the transcript
+            const existingCourse = availableCourses.find(course => course.code === item.code);
+            if (!existingCourse) {
+              // Get course info from courses.json
+              const courseInfo = coursesData.find(course => course.code === item.code);
+              if (courseInfo) {
+                const plannedCourse: TranscriptItem = {
+                  semester: `Semester ${semesterIndex + 1}`,
+                  code: item.code,
+                  name: courseInfo.name,
+                  credits: courseInfo.credits || '3',
+                  grade: '--' // Planned grade
+                };
+                availableCourses.push(plannedCourse);
+              }
+            }
+          } else if (item.type === 'elective') {
+            // For electives, add the assigned course if any
+            const assignedCourse = getAssignedCourseForElective(item.name);
+            if (assignedCourse) {
+              const existingCourse = availableCourses.find(course => course.code === assignedCourse.code);
+              if (!existingCourse) {
+                const plannedCourse: TranscriptItem = {
+                  semester: `Semester ${semesterIndex + 1}`,
+                  code: assignedCourse.code,
+                  name: assignedCourse.name,
+                  credits: assignedCourse.credits,
+                  grade: '--' // Planned grade
+                };
+                availableCourses.push(plannedCourse);
+              }
+            }
+          }
+        });
+      });
+    }
+    
+    return availableCourses;
+  };
+
+  // Helper function to get effective grade for a course based on selected semester
+  const getEffectiveGrade = (courseCode: string): string => {
+    const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === courseCode);
+    if (courseHistory.length === 0) return '';
+    
+    const latestAttempt = courseHistory[courseHistory.length - 1];
+    const latestGrade = latestAttempt.grade;
+    
+    // If the latest grade is not "--", return it as is
+    if (latestGrade !== '--') return latestGrade;
+    
+    // If the latest grade is "--" (planned), check if we're viewing a semester after it
+    if (selectedSemester && latestAttempt.semester !== selectedSemester) {
+      // Compare semesters to see if selected semester is after the planned semester
+      const plannedSemester = latestAttempt.semester;
+      
+      // Extract year and semester order for comparison
+      const getSemesterOrder = (semester: string) => {
+        const yearMatch = semester.match(/(\d{4})/);
+        if (!yearMatch) return 0;
+        const year = parseInt(yearMatch[1]);
+        
+        let semesterOrder = 1; // Güz
+        if (semester.includes('Bahar')) semesterOrder = 2;
+        else if (semester.includes('Yaz')) semesterOrder = 3;
+        
+        return year * 10 + semesterOrder;
+      };
+      
+      const plannedOrder = getSemesterOrder(plannedSemester);
+      const selectedOrder = getSemesterOrder(selectedSemester);
+      
+      // If selected semester is after the planned semester, show as passed with "?"
+      if (selectedOrder > plannedOrder) {
+        return '?'; // Passed (assumed)
+      }
+    }
+    
+    return latestGrade; // Return "--" if still in the same or earlier semester
+  };
+
   const getItemColor = (item: SemesterItem) => {
     if (item.type === 'elective') {
       // For electives, check if there's an assigned course and use its grade for coloring
@@ -513,12 +903,14 @@ export default function Home() {
              if (assignedCourse) {
          const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === assignedCourse.code);
          if (courseHistory.length > 0) {
-          const latestGrade = courseHistory[courseHistory.length - 1].grade;
-          if (latestGrade === '--') {
+          const effectiveGrade = getEffectiveGrade(assignedCourse.code);
+          if (effectiveGrade === '--') {
             return 'bg-blue-500'; // Currently taken
-          } else if (['AA', 'BA', 'BA+', 'BB', 'BB+', 'CB', 'CB+', 'CC', 'CC+', 'DC', 'DC+', 'DD', 'DD+', 'BL'].includes(latestGrade)) {
+          } else if (effectiveGrade === '?') {
+            return 'bg-green-600'; // Passed (assumed)
+          } else if (['AA', 'BA', 'BA+', 'BB', 'BB+', 'CB', 'CB+', 'CC', 'CC+', 'DC', 'DC+', 'DD', 'DD+', 'BL'].includes(effectiveGrade)) {
             return 'bg-green-600'; // Passed (including conditional pass)
-          } else if (['FD', 'FF', 'VF'].includes(latestGrade)) {
+          } else if (['FD', 'FF', 'VF'].includes(effectiveGrade)) {
             return 'bg-red-400'; // Failed (more subtle)
           }
         }
@@ -529,12 +921,14 @@ export default function Home() {
          // For courses, check if they have been taken and their grade
      const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === item.code);
      if (courseHistory.length > 0) {
-      const latestGrade = courseHistory[courseHistory.length - 1].grade;
-      if (latestGrade === '--') {
+      const effectiveGrade = getEffectiveGrade(item.code);
+      if (effectiveGrade === '--') {
         return 'bg-blue-500'; // Currently taken
-      } else if (['AA', 'BA', 'BA+', 'BB', 'BB+', 'CB', 'CB+', 'CC', 'CC+', 'DC', 'DC+', 'DD', 'DD+', 'BL'].includes(latestGrade)) {
+      } else if (effectiveGrade === '?') {
+        return 'bg-green-600'; // Passed (assumed)
+      } else if (['AA', 'BA', 'BA+', 'BB', 'BB+', 'CB', 'CB+', 'CC', 'CC+', 'DC', 'DC+', 'DD', 'DD+', 'BL'].includes(effectiveGrade)) {
         return 'bg-green-600'; // Passed (including conditional pass)
-      } else if (['FD', 'FF', 'VF'].includes(latestGrade)) {
+      } else if (['FD', 'FF', 'VF'].includes(effectiveGrade)) {
         return 'bg-red-400'; // Failed (more subtle)
       }
     }
@@ -732,7 +1126,7 @@ export default function Home() {
       
       // Take the first (most recent) attempt
       const lastAttempt = sortedAttempts[0];
-      if (lastAttempt.grade && lastAttempt.grade !== '--') {
+      if (lastAttempt.grade) {
         lastAttempts.push(lastAttempt);
       }
     });
@@ -742,15 +1136,59 @@ export default function Home() {
     // Define passing grades
     const passingGrades = ['AA', 'BA+', 'BA', 'BB+', 'BB', 'CB+', 'CB', 'CC+', 'CC', 'DC+', 'DC', 'DD+', 'DD', 'BL'];
 
-    // Filter for passed courses only
-    const passedCourses = completedCourses.filter(course => 
-      passingGrades.includes(course.grade)
-    );
+    // Helper functions for semester comparison
+    const getYear = (semester: string) => {
+      const yearMatch = semester.match(/(\d{4})/);
+      return yearMatch ? parseInt(yearMatch[1]) : 0;
+    };
+    
+    const getSemesterOrder = (semester: string) => {
+      if (semester.includes('Güz')) return 1;
+      if (semester.includes('Bahar')) return 2;
+      if (semester.includes('Yaz')) return 3;
+      return 0;
+    };
+    
+    // Filter for passed courses only, including those with "?" effective grade
+    const passedCourses = completedCourses.filter(course => {
+      // Check if the grade is directly passing
+      if (passingGrades.includes(course.grade)) {
+        return true;
+      }
+      
+      // Check if the grade is "--" but should be considered as "?" (passed) based on selected semester
+      if (course.grade === '--' && selectedSemester && course.semester !== selectedSemester) {
+        const plannedOrder = getYear(course.semester) * 10 + getSemesterOrder(course.semester);
+        const selectedOrder = getYear(selectedSemester) * 10 + getSemesterOrder(selectedSemester);
+        
+        
+        // If selected semester is after the planned semester, consider it as passed
+        if (selectedOrder > plannedOrder) {
+          return true;
+        } 
+        return false;
+      }
+      
+      return false;
+    });
 
-    // Calculate total credits (only from passed courses)
-    const totalCredits = passedCourses.reduce((sum, course) => {
+    
+    // Debug courses that are being converted from "--" to "?" (passed)
+    const convertedCourses = completedCourses.filter(course => {
+      if (course.grade === '--' && selectedSemester && course.semester !== selectedSemester) {
+        const plannedOrder = getYear(course.semester) * 10 + getSemesterOrder(course.semester);
+        const selectedOrder = getYear(selectedSemester) * 10 + getSemesterOrder(selectedSemester);
+        return selectedOrder > plannedOrder;
+      }
+      return false;
+    });
+
+    // If we're viewing a planned semester, include planned courses from previous semesters
+    let totalCredits = passedCourses.reduce((sum, course) => {
       return sum + parseFloat(course.credits || '0');
     }, 0);
+
+    
 
     // Calculate GPA
     const gradePoints = {
@@ -775,23 +1213,6 @@ export default function Home() {
 
     const gpa = totalGradedCredits > 0 ? totalGradePoints / totalGradedCredits : 0;
 
-    // Debug logging
-    console.log('GPA Calculation Debug:', {
-      totalCourses: completedCourses.length,
-      passedCourses: passedCourses.length,
-      totalCredits,
-      totalGradePoints,
-      totalGradedCredits,
-      gpa,
-      allCourses: completedCourses.map(c => ({
-        code: c.code,
-        grade: c.grade,
-        credits: c.credits,
-        gradePoints: gradePoints[c.grade as keyof typeof gradePoints],
-        passed: passingGrades.includes(c.grade)
-      }))
-    });
-
     // Determine class standing based on credits
     let classStanding = '';
     if (totalCredits < 30) {
@@ -808,11 +1229,16 @@ export default function Home() {
       totalCredits: Math.round(totalCredits * 10) / 10, // Round to 1 decimal place
       gpa: Math.round(gpa * 100) / 100, // Round to 2 decimal places
       classStanding,
-      completedCourses: completedCourses.length
+      completedCourses: passedCourses.length
     };
   };
 
-  const progressMetrics = calculateProgressMetrics();
+  const progressMetrics = useMemo(() => calculateProgressMetrics(), [
+    transcript, 
+    selectedSemester, 
+    selectedPlan, 
+    coursesData
+  ]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -851,6 +1277,13 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center space-x-2">
+          {/* Temporary test button */}
+          <button
+            onClick={testAddChange}
+            className="px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+          >
+            Test Change
+          </button>
           {user?.imageUrl ? (
             <img 
               src={user.imageUrl} 
@@ -892,6 +1325,14 @@ export default function Home() {
             onDeleteSemester={deleteSemester}
             onUploadTranscript={handleTranscriptUpload}
             onClose={() => setSidebarOpen(false)}
+            onShowResetConfirmation={() => setShowResetConfirmation(true)}
+            onShowResetPlanConfirmation={() => setShowResetPlanConfirmation(true)}
+            isResetting={isResetting}
+            isResettingPlan={isResettingPlan}
+            hasUnsavedChanges={hasUnsavedChanges()}
+            onSaveChanges={handleSaveChanges}
+            isSaving={isSaving}
+            onMarkChangesAsUnsaved={() => {}} // No longer needed since we check differences automatically
           />
         </div>
         
@@ -972,28 +1413,27 @@ export default function Home() {
                                       ⚠️
                                     </div>
                                   )}
-                                  {(() => {
-                                    if (displayCourse) {
-                                      const courseHistory = filteredTranscript.filter((t: TranscriptItem) => t.code === displayCourse.code);
-                                      if (courseHistory.length > 0) {
-                                        const latestGrade = courseHistory[courseHistory.length - 1].grade;
-                                        return (
-                                          <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                            {latestGrade}
-                                          </div>
-                                        );
-                                      }
-                                    }
-                                    
-                                    if (hasUnsatisfiedPrerequisites(item.code)) {
-                                      return (
-                                        <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                          🔒
-                                        </div>
-                                      );
-                                    }
-                                    return null;
-                                  })()}
+                                                                     {(() => {
+                                     if (displayCourse) {
+                                       const effectiveGrade = getEffectiveGrade(displayCourse.code);
+                                       if (effectiveGrade) {
+                                         return (
+                                           <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                             {effectiveGrade}
+                                           </div>
+                                         );
+                                       }
+                                     }
+                                     
+                                     if (hasUnsatisfiedPrerequisites(item.code)) {
+                                       return (
+                                         <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                           🔒
+                                         </div>
+                                       );
+                                     }
+                                     return null;
+                                   })()}
                                 </div>
                               );
                             })()
@@ -1016,15 +1456,23 @@ export default function Home() {
                                     <div className="text-xs text-center mt-1 opacity-75">
                                       ({item.category})
                                     </div>
-                                    {latestGrade ? (
-                                      <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                        {latestGrade}
-                                      </div>
-                                    ) : hasUnsatisfiedPrerequisites(assignedCourse.code) ? (
-                                      <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                        🔒
-                                      </div>
-                                    ) : null}
+                                                                         {(() => {
+                                       const effectiveGrade = getEffectiveGrade(assignedCourse.code);
+                                       if (effectiveGrade) {
+                                         return (
+                                           <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                             {effectiveGrade}
+                                           </div>
+                                         );
+                                       } else if (hasUnsatisfiedPrerequisites(assignedCourse.code)) {
+                                         return (
+                                           <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                             🔒
+                                           </div>
+                                         );
+                                       }
+                                       return null;
+                                     })()}
                                   </div>
                                 );
                               } else {
@@ -1100,6 +1548,9 @@ export default function Home() {
         isElective={isSelectedElective}
         plan={selectedPlan}
         hasWarningIcon={hasWarningIcon}
+        onAddCourse={(code?: string) => addCourseToTranscript(code)}
+        onDeleteAttempt={deleteAttempt}
+        selectedSemester={selectedSemester}
       />
 
       {/* Plan Selection Modal */}
@@ -1109,6 +1560,113 @@ export default function Home() {
         onPlanSelect={handlePlanSelect}
         userId={user?.id || ''}
       />
+
+      {/* Reset Transcript Confirmation Modal */}
+      {showResetConfirmation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Transcript Reset</h3>
+            <p className="text-sm text-gray-700 mb-4">
+              Are you sure you want to reset your transcript? This action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-2">
+              <button
+                className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-100"
+                onClick={() => setShowResetConfirmation(false)}
+                disabled={isResetting}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 text-sm text-red-600 border border-red-300 rounded-md hover:bg-red-50"
+                onClick={handleResetTranscript}
+                disabled={isResetting}
+              >
+                {isResetting ? 'Resetting...' : 'Reset Transcript'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Academic Plan Confirmation Modal */}
+      {showResetPlanConfirmation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Academic Plan Reset</h3>
+            <p className="text-sm text-gray-700 mb-4">
+              Are you sure you want to reset your academic plan? This action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-2">
+              <button
+                className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-100"
+                onClick={() => setShowResetPlanConfirmation(false)}
+                disabled={isResettingPlan}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 text-sm text-red-600 border border-red-300 rounded-md hover:bg-red-50"
+                onClick={handleResetPlan}
+                disabled={isResettingPlan}
+              >
+                {isResettingPlan ? 'Resetting...' : 'Reset Academic Plan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Bar for Unsaved Changes */}
+      {hasUnsavedChanges() && (
+        <div className="fixed bottom-0 left-0 right-0 bg-gray-800 bg-opacity-95 backdrop-blur-sm border-t border-gray-700 z-50">
+          <div className="max-w-7xl mx-auto px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <span className="text-white text-sm font-medium">
+                  Transcript has unsaved changes
+                </span>
+              </div>
+              
+              <div className="flex items-center space-x-3">
+                <div className="w-px h-6 bg-gray-600"></div>
+                <button
+                  onClick={handleCancelChanges}
+                  disabled={isSaving}
+                  className="px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-md hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <span>Cancel Changes</span>
+                </button>
+                <button
+                  onClick={handleSaveChanges}
+                  disabled={isSaving}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                >
+                  {isSaving ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>Save Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

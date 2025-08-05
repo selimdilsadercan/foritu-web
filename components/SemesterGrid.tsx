@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import CoursePopup from './CoursePopup';
 
 interface Course {
@@ -45,39 +45,61 @@ interface CourseInfo {
 interface SemesterGridProps {
   plan: SemesterItem[][];
   transcript?: TranscriptItem[];
+  selectedSemester?: string | null;
 }
 
-export default function SemesterGrid({ plan, transcript = [] }: SemesterGridProps) {
+export default function SemesterGrid({ plan, transcript = [], selectedSemester }: SemesterGridProps) {
   const [popupOpen, setPopupOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<string>('');
   const [isSelectedElective, setIsSelectedElective] = useState(false);
   const [hasWarningIcon, setHasWarningIcon] = useState(false);
   const [coursesData, setCoursesData] = useState<CourseInfo[]>([]);
+  const [courseMappings, setCourseMappings] = useState<Record<string, string[]>>({});
 
-  // Load courses data from JSON file
+  // Load courses data and course mappings from JSON files
   useEffect(() => {
-    const loadCoursesData = async () => {
+    const loadData = async () => {
       try {
-        const response = await fetch('/courses.json');
-        const data = await response.json();
-        setCoursesData(data);
+        // Load courses data
+        const coursesResponse = await fetch('/courses.json');
+        const coursesData = await coursesResponse.json();
+        setCoursesData(coursesData);
+        
+        // Load course mappings
+        const mappingsResponse = await fetch('/course-mappings.json');
+        const mappingsData = await mappingsResponse.json();
+        setCourseMappings(mappingsData);
       } catch (error) {
-        console.error('Error loading courses data:', error);
+        console.error('Error loading data:', error);
       }
     };
 
-    loadCoursesData();
+    loadData();
   }, []);
 
-  // Function to normalize course codes (remove spaces for comparison)
-  const normalizeCourseCode = (code: string): string => {
-    return code.replace(/\s+/g, '');
-  };
-
   // Function to check if a prerequisite is satisfied
-  const isPrerequisiteSatisfied = (prereqCode: string, minGrade: string): boolean => {
-    const normalizedPrereqCode = normalizeCourseCode(prereqCode);
-    const courseHistory = transcript.filter(t => normalizeCourseCode(t.code) === normalizedPrereqCode);
+  const isPrerequisiteSatisfied = useCallback((prereqCode: string, minGrade: string): boolean => {
+    // First check for exact match (with and without spaces)
+    let courseHistory = transcript.filter(t => t.code === prereqCode);
+    
+    // If no exact match, also check with spaces removed
+    if (courseHistory.length === 0) {
+      const prereqCodeNoSpaces = prereqCode.replace(/\s+/g, '');
+      courseHistory = transcript.filter(t => t.code.replace(/\s+/g, '') === prereqCodeNoSpaces);
+    }
+    
+    // If no exact match, try to find equivalent course using course mappings
+    if (courseHistory.length === 0) {
+      const alternatives = courseMappings[prereqCode] || [];
+      for (const alternativeCode of alternatives) {
+        const match = transcript.find(t => t.code === alternativeCode);
+        if (match) {
+          courseHistory = transcript.filter(t => t.code === alternativeCode);
+          break;
+        }
+      }
+    }
+    
     if (courseHistory.length === 0) return false;
     
     const latestGrade = courseHistory[courseHistory.length - 1].grade;
@@ -89,33 +111,33 @@ export default function SemesterGrid({ plan, transcript = [] }: SemesterGridProp
     const minGradeIndex = gradeOrder.indexOf(minGrade);
     
     return latestGradeIndex >= minGradeIndex;
-  };
+  }, [transcript, courseMappings]);
 
   // Function to check if a prerequisite group is satisfied (at least one course in group)
-  const isPrerequisiteGroupSatisfied = (group: PrerequisiteGroup): boolean => {
+  const isPrerequisiteGroupSatisfied = useCallback((group: PrerequisiteGroup): boolean => {
     return group.courses.some(prereq => isPrerequisiteSatisfied(prereq.code, prereq.min));
-  };
+  }, [isPrerequisiteSatisfied]);
 
   // Function to get prerequisites for a course
-  const getPrerequisites = (code: string): PrerequisiteGroup[] | undefined => {
+  const getPrerequisites = useCallback((code: string): PrerequisiteGroup[] | undefined => {
     const course = coursesData.find(c => c.code === code);
     return course?.prerequisites;
-  };
+  }, [coursesData]);
 
   // Function to get course name from courses.json
-  const getCourseNameFromData = (code: string): string | undefined => {
+  const getCourseNameFromData = useCallback((code: string): string | undefined => {
     const course = coursesData.find(c => c.code === code);
     return course?.name;
-  };
+  }, [coursesData]);
 
   // Function to check if a course has unsatisfied prerequisites
-  const hasUnsatisfiedPrerequisites = (courseCode: string): boolean => {
+  const hasUnsatisfiedPrerequisites = useCallback((courseCode: string): boolean => {
     const prerequisites = getPrerequisites(courseCode);
     if (!prerequisites || prerequisites.length === 0) return false;
     
     // Check if any group is not satisfied
     return prerequisites.some(group => !isPrerequisiteGroupSatisfied(group));
-  };
+  }, [getPrerequisites, isPrerequisiteGroupSatisfied]);
 
     const getItemColor = (item: SemesterItem) => {
     if (item.type === 'elective') {
@@ -283,15 +305,65 @@ export default function SemesterGrid({ plan, transcript = [] }: SemesterGridProp
 
   // Calculate progress metrics
   const calculateProgressMetrics = () => {
+    console.log('=== DEBUG: calculateProgressMetrics ===');
+    console.log('Transcript:', transcript);
+    console.log('Plan:', plan);
+    
+    // Get transcript up to selected semester (same logic as in home page)
+    const getTranscriptUpToSelected = () => {
+      if (!selectedSemester) return transcript;
+      
+      // Get all unique semesters from transcript and sort them
+      const semesters = [...new Set(transcript.map(item => item.semester))];
+      const sortedSemesters = semesters.sort((a, b) => {
+        const getYear = (semester: string) => {
+          const yearMatch = semester.match(/(\d{4})/);
+          return yearMatch ? parseInt(yearMatch[1]) : 0;
+        };
+        
+        const getSemesterOrder = (semester: string) => {
+          if (semester.includes('Güz')) return 1;
+          if (semester.includes('Bahar')) return 2;
+          if (semester.includes('Yaz')) return 3;
+          return 0;
+        };
+        
+        const yearA = getYear(a);
+        const yearB = getYear(b);
+        
+        if (yearA !== yearB) return yearA - yearB;
+        
+        return getSemesterOrder(a) - getSemesterOrder(b);
+      });
+      
+      // Find the index of the selected semester
+      const selectedIndex = sortedSemesters.indexOf(selectedSemester);
+      if (selectedIndex === -1) return transcript;
+      
+      // Get semesters up to and including the selected semester
+      const semestersUpToSelected = sortedSemesters.slice(0, selectedIndex + 1);
+      
+      // Return all transcript items from semesters up to the selected semester
+      return transcript.filter(item => semestersUpToSelected.includes(item.semester));
+    };
+
+    const filteredTranscript = getTranscriptUpToSelected();
+    console.log('Filtered transcript (up to selected semester):', filteredTranscript);
+    
+    // Define passing grades
+    const passingGrades = ['AA', 'BA+', 'BA', 'BB+', 'BB', 'CB+', 'CB', 'CC+', 'CC', 'DC+', 'DC', 'DD+', 'DD', 'BL'];
+    
     // Group courses by code and get only the last attempt for each course
     const courseGroups = new Map<string, TranscriptItem[]>();
     
-    transcript.forEach(course => {
+    filteredTranscript.forEach(course => {
       if (!courseGroups.has(course.code)) {
         courseGroups.set(course.code, []);
       }
       courseGroups.get(course.code)!.push(course);
     });
+    
+    console.log('Course groups:', Array.from(courseGroups.entries()));
     
     // Get the last attempt for each course (most recent semester)
     const lastAttempts: TranscriptItem[] = [];
@@ -319,28 +391,40 @@ export default function SemesterGrid({ plan, transcript = [] }: SemesterGridProp
       
       // Take the first (most recent) attempt
       const lastAttempt = sortedAttempts[0];
-      if (lastAttempt.grade && lastAttempt.grade !== '--' && lastAttempt.grade !== 'VF') {
+      if (lastAttempt.grade && lastAttempt.grade !== '--') {
         lastAttempts.push(lastAttempt);
       }
     });
 
-    const completedCourses = lastAttempts;
+    console.log('Last attempts:', lastAttempts);
 
-    // Calculate total credits
-    const totalCredits = completedCourses.reduce((sum, course) => {
+    // Filter for passed courses only
+    const passedCourses = lastAttempts.filter(course => 
+      passingGrades.includes(course.grade)
+    );
+
+    console.log('Passed courses:', passedCourses);
+    console.log('Passed courses count:', passedCourses.length);
+
+    // Calculate total credits from passed courses
+    let totalCredits = passedCourses.reduce((sum, course) => {
       return sum + parseFloat(course.credits || '0');
     }, 0);
 
+    console.log('Total credits from passed courses:', totalCredits);
+
     // Calculate GPA
     const gradePoints = {
-      'AA': 4.0, 'BA': 3.5, 'BB': 3.0, 'CB': 2.5, 'CC': 2.0, 
-      'DC': 1.5, 'DD': 1.0, 'FD': 0.5, 'FF': 0.0, 'BL': 0.0
+      'AA': 4.0, 'BA+': 3.75, 'BA': 3.5, 'BB+': 3.25, 'BB': 3.0, 
+      'CB+': 2.75, 'CB': 2.5, 'CC+': 2.25, 'CC': 2.0, 
+      'DC+': 1.75, 'DC': 1.5, 'DD+': 1.25, 'DD': 1.0, 
+      'FD': 0.5, 'FF': 0.0, 'VF': 0.0, 'BL': 0.0
     };
 
     let totalGradePoints = 0;
     let totalGradedCredits = 0;
 
-    completedCourses.forEach(course => {
+    passedCourses.forEach(course => {
       const grade = course.grade;
       const credits = parseFloat(course.credits || '0');
       
@@ -364,12 +448,15 @@ export default function SemesterGrid({ plan, transcript = [] }: SemesterGridProp
       classStanding = '4.sınıf';
     }
 
-    return {
+    const result = {
       totalCredits: Math.round(totalCredits * 10) / 10, // Round to 1 decimal place
       gpa: Math.round(gpa * 100) / 100, // Round to 2 decimal places
       classStanding,
-      completedCourses: completedCourses.length
+      completedCourses: passedCourses.length
     };
+    
+    console.log('Final result:', result);
+    return result;
   };
 
   const progressMetrics = calculateProgressMetrics();

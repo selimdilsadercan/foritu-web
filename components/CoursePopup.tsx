@@ -36,11 +36,16 @@ interface CoursePopupProps {
   isElective?: boolean;
   plan?: any[][];
   hasWarningIcon?: boolean;
+  onAddCourse?: (courseCode?: string) => void;
+  onDeleteAttempt?: (courseCode: string, semester: string) => void;
+  selectedSemester?: string | null;
 }
 
-export default function CoursePopup({ isOpen, onClose, courseCode, courseName: providedCourseName, transcript, isElective = false, plan = [], hasWarningIcon = false }: CoursePopupProps) {
+export default function CoursePopup({ isOpen, onClose, courseCode, courseName: providedCourseName, transcript, isElective = false, plan = [], hasWarningIcon = false, onAddCourse, onDeleteAttempt, selectedSemester }: CoursePopupProps) {
   const [selectedElectiveCourse, setSelectedElectiveCourse] = useState<string>('');
+  const [selectedElectiveCourseCode, setSelectedElectiveCourseCode] = useState<string>('');
   const [coursesData, setCoursesData] = useState<CourseInfo[]>([]);
+  const [courseMappings, setCourseMappings] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
   
   // Parse courseCode to handle matched courses (format: "PLANCODE|MATCHEDCODE")
@@ -93,23 +98,29 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
     };
   }, [isOpen, onClose]);
 
-  // Load courses data from JSON file
+  // Load courses data and course mappings from JSON files
   useEffect(() => {
-    const loadCoursesData = async () => {
+    const loadData = async () => {
       setLoading(true);
       try {
-        const response = await fetch('/courses.json');
-        const data = await response.json();
-        setCoursesData(data);
+        // Load courses data
+        const coursesResponse = await fetch('/courses.json');
+        const coursesData = await coursesResponse.json();
+        setCoursesData(coursesData);
+        
+        // Load course mappings
+        const mappingsResponse = await fetch('/course-mappings.json');
+        const mappingsData = await mappingsResponse.json();
+        setCourseMappings(mappingsData);
       } catch (error) {
-        console.error('Error loading courses data:', error);
+        console.error('Error loading data:', error);
       } finally {
         setLoading(false);
       }
     };
 
     if (isOpen) {
-      loadCoursesData();
+      loadData();
     }
   }, [isOpen]);
 
@@ -125,41 +136,151 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
     return course?.prerequisites;
   };
 
-  // Function to normalize course codes (remove spaces for comparison)
-  const normalizeCourseCode = (code: string): string => {
-    return code.replace(/\s+/g, '');
+
+
+  // Helper function to find equivalent courses using exact match and course mappings JSON
+  const findEquivalentCourse = (targetCourseCode: string, allPrerequisiteCodes: string[] = []) => {
+    // First, check for exact match (with and without spaces)
+    const exactMatch = transcript.find(t => t.code === targetCourseCode);
+    if (exactMatch) {
+      return exactMatch;
+    }
+    
+    // Also check for exact match with spaces removed
+    const targetCodeNoSpaces = targetCourseCode.replace(/\s+/g, '');
+    const exactMatchNoSpaces = transcript.find(t => t.code.replace(/\s+/g, '') === targetCodeNoSpaces);
+    if (exactMatchNoSpaces) {
+      return exactMatchNoSpaces;
+    }
+    
+    // Then, check if the target course has explicit mappings in course-mappings.json
+    const alternatives = courseMappings[targetCourseCode] || [];
+    
+    // Look for any of the alternative courses in the transcript
+    for (const alternativeCode of alternatives) {
+      const match = transcript.find(t => t.code === alternativeCode);
+      if (match) {
+        // Check if this alternative is in the prerequisite list
+        if (allPrerequisiteCodes.includes(alternativeCode)) {
+          continue;
+        }
+        return match;
+      }
+    }
+    
+    return null;
   };
 
   // Function to check if a prerequisite is satisfied
-  const isPrerequisiteSatisfied = (prereqCode: string, minGrade: string): boolean => {
-    const normalizedPrereqCode = normalizeCourseCode(prereqCode);
-    const courseHistory = transcript.filter(t => normalizeCourseCode(t.code) === normalizedPrereqCode);
+  const isPrerequisiteSatisfied = (prereqCode: string, minGrade: string, courseCodeForPrereqs?: string): boolean => {
+    // Get all prerequisite codes from the current prerequisite group to avoid matching with them
+    const allPrerequisiteCodes = courseCodeForPrereqs ? getPrerequisites(courseCodeForPrereqs)?.flatMap(group => 
+      group.courses.map(course => course.code)
+    ) || [] : [];
+    
+    // Use findEquivalentCourse which handles both exact match and course mappings
+    const equivalentMatch = findEquivalentCourse(prereqCode, allPrerequisiteCodes);
+    let courseHistory: TranscriptItem[] = [];
+    
+    if (equivalentMatch) {
+      courseHistory = transcript.filter(t => t.code === equivalentMatch.code);
+    }
+    
     if (courseHistory.length === 0) return false;
     
-    const latestGrade = courseHistory[courseHistory.length - 1].grade;
-    if (latestGrade === '--') return false; // Currently taken
+    const latestAttempt = courseHistory[courseHistory.length - 1];
+    const latestGrade = latestAttempt.grade;
     
-    // Grade comparison logic - based on your transcript grades
-    const gradeOrder = ['FF', 'FD', 'VF', 'DD', 'DD+', 'DC', 'DC+', 'CC', 'CC+', 'CB', 'CB+', 'BB', 'BB+', 'BA', 'BA+', 'AA', 'BL'];
-    const latestGradeIndex = gradeOrder.indexOf(latestGrade);
-    const minGradeIndex = gradeOrder.indexOf(minGrade);
+    // If the latest grade is not "--", use it directly
+    if (latestGrade !== '--') {
+      // Grade comparison logic - based on transcript grades
+      const gradeOrder = ['FF', 'FD', 'VF', 'DD', 'DD+', 'DC', 'DC+', 'CC', 'CC+', 'CB', 'CB+', 'BB', 'BB+', 'BA', 'BA+', 'AA', 'BL'];
+      const latestGradeIndex = gradeOrder.indexOf(latestGrade);
+      const minGradeIndex = gradeOrder.indexOf(minGrade);
+      
+      return latestGradeIndex >= minGradeIndex;
+    }
     
-    return latestGradeIndex >= minGradeIndex;
+    // If the latest grade is "--" (planned), check if we're viewing a semester after it
+    if (selectedSemester && latestAttempt.semester !== selectedSemester) {
+      // For planned courses, we need to check if the selected semester comes after the planned semester
+      const plannedSemester = latestAttempt.semester;
+      
+      // If the planned semester is from the plan (e.g., "Semester 1"), we need to compare differently
+      if (plannedSemester.startsWith('Semester ')) {
+        // Extract semester number from plan
+        const planSemesterNum = parseInt(plannedSemester.replace('Semester ', ''));
+        
+        // Extract semester number from selected semester
+        const selectedSemesterNum = parseInt(selectedSemester.replace(/[^0-9]/g, ''));
+        
+        // If selected semester is after the planned semester, consider it as passed
+        if (selectedSemesterNum > planSemesterNum) {
+          // Grade comparison logic for planned courses (assumed pass)
+          const gradeOrder = ['FF', 'FD', 'VF', 'DD', 'DD+', 'DC', 'DC+', 'CC', 'CC+', 'CB', 'CB+', 'BB', 'BB+', 'BA', 'BA+', 'AA', 'BL'];
+          const minGradeIndex = gradeOrder.indexOf(minGrade);
+          
+          // Planned courses are considered as passing with "CC" grade
+          const assumedGradeIndex = gradeOrder.indexOf('CC');
+          
+          return assumedGradeIndex >= minGradeIndex;
+        }
+      } else {
+        // For regular transcript semesters, use the existing logic
+        const getSemesterOrder = (semester: string) => {
+          const yearMatch = semester.match(/(\d{4})/);
+          if (!yearMatch) return 0;
+          const year = parseInt(yearMatch[1]);
+          
+          let semesterOrder = 1; // Güz
+          if (semester.includes('Bahar')) semesterOrder = 2;
+          else if (semester.includes('Yaz')) semesterOrder = 3;
+          
+          return year * 10 + semesterOrder;
+        };
+        
+        const plannedOrder = getSemesterOrder(plannedSemester);
+        const selectedOrder = getSemesterOrder(selectedSemester);
+        
+        // If selected semester is after the planned semester, consider it as passed
+        if (selectedOrder > plannedOrder) {
+          // Grade comparison logic for "?" grade (assumed pass)
+          const gradeOrder = ['FF', 'FD', 'VF', 'DD', 'DD+', 'DC', 'DC+', 'CC', 'CC+', 'CB', 'CB+', 'BB', 'BB+', 'BA', 'BA+', 'AA', 'BL'];
+          const minGradeIndex = gradeOrder.indexOf(minGrade);
+          
+          // "?" grade is considered as a passing grade, so it should satisfy most prerequisites
+          // We'll treat it as equivalent to "CC" (minimum passing grade)
+          const assumedGradeIndex = gradeOrder.indexOf('CC');
+          
+          return assumedGradeIndex >= minGradeIndex;
+        }
+      }
+    }
+    
+    return false; // Currently taken or not yet taken
   };
 
   // Function to check if a prerequisite group is satisfied (at least one course in group)
   const isPrerequisiteGroupSatisfied = (group: PrerequisiteGroup): boolean => {
-    return group.courses.some(prereq => isPrerequisiteSatisfied(prereq.code, prereq.min));
+    return group.courses.some(prereq => isPrerequisiteSatisfied(prereq.code, prereq.min, planCourseCode));
   };
 
   // Function to get the status text for a prerequisite
   const getPrerequisiteStatus = (prereqCode: string): string => {
-    const normalizedPrereqCode = normalizeCourseCode(prereqCode);
-    const courseHistory = transcript.filter(t => normalizeCourseCode(t.code) === normalizedPrereqCode);
+    // Use findEquivalentCourse which handles both exact match and course mappings
+    const equivalentMatch = findEquivalentCourse(prereqCode);
+    let courseHistory: TranscriptItem[] = [];
+    let matchedCourseCode = prereqCode;
+    
+    if (equivalentMatch) {
+      courseHistory = transcript.filter(t => t.code === equivalentMatch.code);
+      matchedCourseCode = equivalentMatch.code;
+    }
+    
     if (courseHistory.length === 0) return 'Not taken';
     
     const latestGrade = courseHistory[courseHistory.length - 1].grade;
-    if (latestGrade === '--') return 'Currently taken';
+    if (latestGrade === '--') return 'Planned to pass';
     
     // Check if it's a passing grade
     const passingGrades = ['AA', 'BA', 'BA+', 'BB', 'BB+', 'CB', 'CB+', 'CC', 'CC+', 'DD', 'DD+', 'DC', 'DC+', 'BL'];
@@ -252,13 +373,23 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
             <div className="p-6">
               {/* Course History */}
               <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Course History</h3>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">Course History</h3>
+                  {onAddCourse && selectedSemester && (
+                    <button
+                      onClick={() => onAddCourse()}
+                      className="px-3 py-1 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 transition-colors"
+                    >
+                      Add New Attempt
+                    </button>
+                  )}
+                </div>
                 {courseHistory.length === 0 ? (
                   <p className="text-gray-500">No attempts found for this course.</p>
                 ) : (
                   <div className="space-y-3">
                     {courseHistory.map((attempt, index) => (
-                      <div key={index} className="bg-gray-50 rounded-lg p-4">
+                      <div key={index} className="bg-gray-50 rounded-lg p-4 relative">
                         <div className="flex justify-between items-start">
                           <div>
                             <p className="font-medium text-gray-800">{attempt.semester}</p>
@@ -277,6 +408,15 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                             </p>
                           </div>
                         </div>
+                        {onDeleteAttempt && (
+                          <button
+                            onClick={() => onDeleteAttempt(attempt.code, attempt.semester)}
+                            className="absolute top-2 right-2 text-red-500 hover:text-red-700 text-sm font-bold p-1 rounded-full hover:bg-red-50 transition-colors"
+                            title="Delete this attempt"
+                          >
+                            ×
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -323,7 +463,7 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                                     <div className="text-right">
                                       <span className={`text-sm font-semibold ${
                                         getPrerequisiteStatus(prereq.code) === 'Not taken' ? 'text-gray-400' :
-                                        getPrerequisiteStatus(prereq.code) === 'Currently taken' ? 'text-blue-600' :
+                                        getPrerequisiteStatus(prereq.code) === 'Planned to pass' ? 'text-blue-600' :
                                         getPrerequisiteStatus(prereq.code) === 'Failed' ? 'text-red-600' :
                                         isSatisfied ? 'text-green-600' : 'text-red-600'
                                       }`}>
@@ -424,7 +564,7 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                   return (
                     <button
                       key={courseCode}
-                      onClick={() => !isAssignedToOther && setSelectedElectiveCourse(courseName)}
+                      onClick={() => !isAssignedToOther && (setSelectedElectiveCourse(courseName), setSelectedElectiveCourseCode(courseCode))}
                       disabled={isAssignedToOther}
                       className={`p-3 rounded-lg border-2 transition-all ${
                         isAssignedToOther
@@ -468,7 +608,17 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
             {/* Course History */}
             {selectedElectiveCourse && (
               <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Course History</h3>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">Course History</h3>
+                  {onAddCourse && selectedSemester && selectedElectiveCourseCode && (
+                    <button
+                      onClick={() => onAddCourse(selectedElectiveCourseCode)}
+                      className="px-3 py-1 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 transition-colors"
+                    >
+                      Add New Attempt
+                    </button>
+                  )}
+                </div>
                 {courseHistory.length === 0 ? (
                   <p className="text-gray-500">No attempts found for this course.</p>
                 ) : (
@@ -594,13 +744,23 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
         <div className="p-6">
                     {/* Course History */}
           <div className="mb-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Course History</h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-800">Course History</h3>
+              {onAddCourse && selectedSemester && (
+                <button
+                  onClick={() => onAddCourse(courseCode)}
+                  className="px-3 py-1 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 transition-colors"
+                >
+                  Add New Attempt
+                </button>
+              )}
+            </div>
             {courseHistory.length === 0 ? (
               <p className="text-gray-500">No attempts found for this course.</p>
             ) : (
               <div className="space-y-3">
                 {courseHistory.map((attempt, index) => (
-                  <div key={index} className="bg-gray-50 rounded-lg p-4">
+                  <div key={index} className="bg-gray-50 rounded-lg p-4 relative">
                     <div className="flex justify-between items-start">
                       <div>
                         <p className="font-medium text-gray-800">{attempt.semester}</p>
@@ -619,6 +779,15 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                         </p>
                       </div>
                     </div>
+                    {onDeleteAttempt && attempt.grade === "--" && (
+                      <button
+                        onClick={() => onDeleteAttempt(attempt.code, attempt.semester)}
+                        className="absolute bottom-2 right-2 text-red-500 hover:text-red-700 text-lg font-bold p-2 rounded-full hover:bg-red-50 transition-colors"
+                        title="Delete this attempt"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -667,7 +836,7 @@ export default function CoursePopup({ isOpen, onClose, courseCode, courseName: p
                                     <div className="text-right">
                                       <span className={`text-sm font-semibold ${
                                         getPrerequisiteStatus(prereq.code) === 'Not taken' ? 'text-gray-400' :
-                                        getPrerequisiteStatus(prereq.code) === 'Currently taken' ? 'text-blue-600' :
+                                        getPrerequisiteStatus(prereq.code) === 'Planned to pass' ? 'text-blue-600' :
                                         getPrerequisiteStatus(prereq.code) === 'Failed' ? 'text-red-600' :
                                         isSatisfied ? 'text-green-600' : 'text-red-600'
                                       }`}>
