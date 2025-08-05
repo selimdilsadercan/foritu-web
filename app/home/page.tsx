@@ -72,6 +72,11 @@ export default function Home() {
 
   // Load courses data from JSON file and get user's data in correct order
   useEffect(() => {
+    // Prevent running multiple times if user is still loading
+    if (!user && user !== null) {
+      return; // Wait for user to be loaded
+    }
+
     const loadCoursesData = async () => {
       try {
         // Load courses data
@@ -139,7 +144,6 @@ export default function Home() {
 
     // Load user's transcript from API - SECOND PRIORITY (after plan is loaded)
     const loadUserTranscript = async () => {
-      setIsLoading(true);
       if (user?.id) {
         try {
           console.log('Client: Loading user transcript after plan...');
@@ -163,11 +167,13 @@ export default function Home() {
         setTranscript([]);
         setLastSavedTranscript([]);
       }
-      setIsLoading(false);
     };
 
     // Execute in the correct order: courses data -> plan -> transcript
     const initializeData = async () => {
+      // Set loading state at the very beginning
+      setIsLoading(true);
+      
       await loadCoursesData();
       
       if (user?.id) {
@@ -177,12 +183,14 @@ export default function Home() {
         // If no user ID, still load courses data but use empty plan and transcript
         setSelectedPlan([]);
         setTranscript([]);
-        setIsLoading(false);
       }
+      
+      // Set loading to false only after everything is complete
+      setIsLoading(false);
     };
 
     initializeData();
-  }, [user?.id]);
+  }, [user]);
 
   // Show plan selection modal automatically when no plan is selected and plan loading is complete
   useEffect(() => {
@@ -1299,14 +1307,16 @@ export default function Home() {
       {/* Mobile Header */}
       <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
+          {!isLoading && (
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          )}
           <div>
             <h1 className="text-xl font-bold text-gray-900">🐝Foritu</h1>
             <p className="text-xs text-gray-500">Academic Progress Tracker</p>
@@ -1339,41 +1349,43 @@ export default function Home() {
       {/* Main Content with Left Panel */}
       <div className="flex h-screen lg:h-[calc(100vh-0px)]">
         {/* Mobile Sidebar Overlay */}
-        {sidebarOpen && (
+        {sidebarOpen && !isLoading && (
           <div 
             className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
 
-        {/* Left Panel */}
-        <div className={`
-          fixed lg:relative inset-y-0 left-0 z-50 w-80 bg-gray-50 border-r border-gray-200 transform transition-transform duration-300 ease-in-out
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-        `}>
-          <SemesterPanel
-            transcript={transcript}
-            plan={selectedPlan}
-            onSemesterSelect={handleSemesterSelect}
-            selectedSemester={selectedSemester}
-            onAddNewSemester={addNewSemester}
-            onDeleteLatestSemester={deleteLatestSemester}
-            onDeleteSemester={deleteSemester}
-            onUploadTranscript={handleTranscriptUpload}
-            onClose={() => setSidebarOpen(false)}
-            onShowResetConfirmation={() => setShowResetConfirmation(true)}
-            onShowResetPlanConfirmation={() => setShowResetPlanConfirmation(true)}
-            isResetting={isResetting}
-            isResettingPlan={isResettingPlan}
-            hasUnsavedChanges={hasUnsavedChanges()}
-            onSaveChanges={handleSaveChanges}
-            isSaving={isSaving}
-            onMarkChangesAsUnsaved={() => {}} // No longer needed since we check differences automatically
-          />
-        </div>
+        {/* Left Panel - Only show when not loading */}
+        {!isLoading && (
+          <div className={`
+            fixed lg:relative inset-y-0 left-0 z-50 w-80 bg-gray-50 border-r border-gray-200 transform transition-transform duration-300 ease-in-out
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          `}>
+            <SemesterPanel
+              transcript={transcript}
+              plan={selectedPlan}
+              onSemesterSelect={handleSemesterSelect}
+              selectedSemester={selectedSemester}
+              onAddNewSemester={addNewSemester}
+              onDeleteLatestSemester={deleteLatestSemester}
+              onDeleteSemester={deleteSemester}
+              onUploadTranscript={handleTranscriptUpload}
+              onClose={() => setSidebarOpen(false)}
+              onShowResetConfirmation={() => setShowResetConfirmation(true)}
+              onShowResetPlanConfirmation={() => setShowResetPlanConfirmation(true)}
+              isResetting={isResetting}
+              isResettingPlan={isResettingPlan}
+              hasUnsavedChanges={hasUnsavedChanges()}
+              onSaveChanges={handleSaveChanges}
+              isSaving={isSaving}
+              onMarkChangesAsUnsaved={() => {}} // No longer needed since we check differences automatically
+            />
+          </div>
+        )}
         
         {/* Main Content Area */}
-        <div className="flex-1 overflow-y-auto lg:overflow-y-auto">
+        <div className={`overflow-y-auto lg:overflow-y-auto ${!isLoading ? 'flex-1' : 'w-full'}`}>
           {/* Compact Progress Summary */}
           {selectedPlan.length > 0 && (
             <div className="w-full max-w-7xl mx-auto p-4 lg:p-6">
