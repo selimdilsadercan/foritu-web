@@ -991,14 +991,50 @@ export default function Home() {
     return undefined;
   };
 
-  // Helper function to find a course by number part (e.g., "210" in "BLG210")
-  const findCourseByNumber = (targetCourseCode: string, planCourseCodes: Set<string>) => {
-    const targetNumber = targetCourseCode.replace(/[A-Z]/g, ''); // Extract number part
-    return filteredTranscript.find((t: TranscriptItem) => {
-      const courseNumber = t.code.replace(/[A-Z]/g, ''); // Extract number from transcript course
-      // Only match if the transcript course is NOT already in the plan
-      return courseNumber === targetNumber && !planCourseCodes.has(t.code);
-    });
+  // Helper function to find a course using course mappings and E suffix matching
+  const findCourseByMapping = (targetCourseCode: string, planCourseCodes: Set<string>) => {
+    // First, check if there's an exact match
+    const exactMatch = filteredTranscript.find((t: TranscriptItem) => t.code === targetCourseCode);
+    if (exactMatch) return exactMatch;
+
+    // Check course mappings from course-mappings.json
+    const mappedCourses = courseMappings[targetCourseCode] || [];
+    for (const mappedCourse of mappedCourses) {
+      const mappedMatch = filteredTranscript.find((t: TranscriptItem) => 
+        t.code === mappedCourse && !planCourseCodes.has(t.code)
+      );
+      if (mappedMatch) return mappedMatch;
+    }
+
+    // Check reverse mappings (if target course is in the mapped courses)
+    for (const [mappedCode, alternatives] of Object.entries(courseMappings)) {
+      if (alternatives.includes(targetCourseCode)) {
+        const reverseMatch = filteredTranscript.find((t: TranscriptItem) => 
+          t.code === mappedCode && !planCourseCodes.has(t.code)
+        );
+        if (reverseMatch) return reverseMatch;
+      }
+    }
+
+    // Check E suffix matching (e.g., BLG210E matches BLG210 and vice versa)
+    const hasE = targetCourseCode.endsWith('E');
+    const baseCode = hasE ? targetCourseCode.slice(0, -1) : targetCourseCode;
+    const eCode = hasE ? targetCourseCode : targetCourseCode + 'E';
+    
+    // Try matching with E suffix
+    const eMatch = filteredTranscript.find((t: TranscriptItem) => 
+      t.code === eCode && !planCourseCodes.has(t.code)
+    );
+    if (eMatch) return eMatch;
+
+    // Try matching without E suffix
+    const baseMatch = filteredTranscript.find((t: TranscriptItem) => 
+      t.code === baseCode && !planCourseCodes.has(t.code)
+    );
+    if (baseMatch) return baseMatch;
+
+    // If no mapping found, return null
+    return null;
   };
 
   // Helper function to get assigned course for elective
@@ -1393,22 +1429,22 @@ export default function Home() {
                               // First check if the exact course code exists in filtered transcript
                               const exactMatch = filteredTranscript.find((t: TranscriptItem) => t.code === item.code);
                               
-                              // If no exact match, try to find by number part
-                              const numberMatch = !exactMatch ? findCourseByNumber(item.code, planCourseCodes) : null;
+                              // If no exact match, try to find by course mappings and E suffix
+                              const mappedMatch = !exactMatch ? findCourseByMapping(item.code, planCourseCodes) : null;
                               
                               // Determine which course to display
-                              const displayCourse = exactMatch || numberMatch;
-                              const isNumberMatch = !exactMatch && numberMatch;
+                              const displayCourse = exactMatch || mappedMatch;
+                              const isMappedMatch = !exactMatch && mappedMatch;
                               
                               return (
                                 <div 
                                   className={`${displayCourse ? getItemColor({ type: 'course', code: displayCourse.code }) : getItemColor(item)} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 relative`}
-                                  onClick={() => handleCourseClick(item.code, false, displayCourse?.code, Boolean(isNumberMatch))}
+                                  onClick={() => handleCourseClick(item.code, false, displayCourse?.code, Boolean(isMappedMatch))}
                                 >
                                   <div className="text-sm font-medium text-center">
                                     {formatCourseCode(item.code)}
                                   </div>
-                                  {isNumberMatch && (
+                                  {isMappedMatch && (
                                     <div className="absolute -top-1 -left-1 bg-orange-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
                                       ⚠️
                                     </div>
@@ -1527,7 +1563,7 @@ export default function Home() {
                   </div>
                   <div className="flex items-center space-x-3">
                     <div className="w-5 h-5 bg-orange-500 rounded shadow-sm flex items-center justify-center text-xs">⚠️</div>
-                    <span className="text-sm text-gray-600">Different Course</span>
+                    <span className="text-sm text-gray-600">Mapped Course</span>
                   </div>
                 </div>
               </div>
