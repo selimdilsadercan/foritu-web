@@ -192,8 +192,11 @@ export default function CoursePopup({
   // Function to handle lesson selection
   const handleLessonSelect = (lessonId: string) => {
     // Find the latest "--" attempt of the course and update it with lesson_id
+    // For elective courses, we need to check both the display course code and the original elective course code
     const courseHistory = transcript.filter(
-      (item) => item.code === displayCourseCode
+      (item) =>
+        item.code === displayCourseCode ||
+        (isElective && item.code === planCourseCode)
     );
     const latestDashAttempt = courseHistory
       .filter((item) => item.grade === "--")
@@ -216,8 +219,12 @@ export default function CoursePopup({
 
     if (latestDashAttempt && onUpdateSelectedLessons) {
       // Call the parent function to update the transcript state with just the lesson_id
+      // For elective courses, we should update the original elective course code
+      const courseCodeToUpdate = isElective
+        ? planCourseCode
+        : displayCourseCode;
       onUpdateSelectedLessons(
-        displayCourseCode,
+        courseCodeToUpdate,
         latestDashAttempt.semester,
         lessonId
       );
@@ -228,8 +235,11 @@ export default function CoursePopup({
   // Function to handle lesson deselection
   const handleLessonDeselect = (lessonId: string) => {
     // Find the latest "--" attempt of the course and remove lesson_id
+    // For elective courses, we need to check both the display course code and the original elective course code
     const courseHistory = transcript.filter(
-      (item) => item.code === displayCourseCode
+      (item) =>
+        item.code === displayCourseCode ||
+        (isElective && item.code === planCourseCode)
     );
     const latestDashAttempt = courseHistory
       .filter((item) => item.grade === "--")
@@ -252,8 +262,12 @@ export default function CoursePopup({
 
     if (latestDashAttempt && onUpdateSelectedLessons) {
       // Call the parent function to update the transcript state with null to remove lesson_id
+      // For elective courses, we should update the original elective course code
+      const courseCodeToUpdate = isElective
+        ? planCourseCode
+        : displayCourseCode;
       onUpdateSelectedLessons(
-        displayCourseCode,
+        courseCodeToUpdate,
         latestDashAttempt.semester,
         undefined
       );
@@ -1722,9 +1736,6 @@ export default function CoursePopup({
                                   CRN
                                 </th>
                                 <th className="border border-gray-300 px-3 py-2 text-left text-xs font-medium">
-                                  Ders Kodu
-                                </th>
-                                <th className="border border-gray-300 px-3 py-2 text-left text-xs font-medium">
                                   Öğretim Üyesi
                                 </th>
                                 <th className="border border-gray-300 px-3 py-2 text-left text-xs font-medium">
@@ -1737,13 +1748,13 @@ export default function CoursePopup({
                                   Saat
                                 </th>
                                 <th className="border border-gray-300 px-3 py-2 text-left text-xs font-medium">
-                                  Derslik
-                                </th>
-                                <th className="border border-gray-300 px-3 py-2 text-left text-xs font-medium">
                                   Kontenjan
                                 </th>
                                 <th className="border border-gray-300 px-3 py-2 text-left text-xs font-medium">
                                   Yazılan
+                                </th>
+                                <th className="border border-gray-300 px-3 py-2 text-left text-xs font-medium">
+                                  Action
                                 </th>
                               </tr>
                             </thead>
@@ -1752,44 +1763,105 @@ export default function CoursePopup({
                                 (lesson, index) =>
                                   lesson.sessions &&
                                   lesson.sessions.map(
-                                    (session, sessionIndex) => (
-                                      <tr
-                                        key={`${lesson.lesson_id}-${sessionIndex}`}
-                                        className="bg-white hover:bg-gray-50"
-                                      >
-                                        <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
-                                          {sessionIndex === 0
-                                            ? lesson.lesson_id
-                                            : ""}
-                                        </td>
-                                        <td className="border border-gray-300 px-3 py-2 text-xs font-medium text-blue-600">
-                                          {displayCourseCode}
-                                        </td>
-                                        <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
-                                          {getCourseNameFromData(
-                                            displayCourseCode
-                                          ) || displayCourseName}
-                                        </td>
-                                        <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
-                                          {lesson.delivery_mode}
-                                        </td>
-                                        <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
-                                          {lesson.instructor &&
-                                          lesson.instructor !== "-"
-                                            ? lesson.instructor
-                                            : "-"}
-                                        </td>
-                                        <td className="border border-gray-300 px-3 py-2 text-xs font-medium text-blue-600">
-                                          {session.location}
-                                        </td>
-                                        <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
-                                          {session.day}
-                                        </td>
-                                        <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
-                                          {session.time}
-                                        </td>
-                                      </tr>
-                                    )
+                                    (session, sessionIndex) => {
+                                      // Check if this lesson is selected by finding the latest "--" attempt of the course
+                                      // For elective courses, we need to check both the display course code and the original elective course code
+                                      const courseHistory = transcript.filter(
+                                        (item) =>
+                                          item.code === displayCourseCode ||
+                                          (isElective &&
+                                            item.code === planCourseCode)
+                                      );
+                                      const latestDashAttempt = courseHistory
+                                        .filter((item) => item.grade === "--")
+                                        .sort((a, b) => {
+                                          // Sort by semester to get the most recent "--" attempt
+                                          const getSemesterOrder = (
+                                            semester: string
+                                          ) => {
+                                            const yearMatch =
+                                              semester.match(/(\d{4})/);
+                                            if (!yearMatch) return 0;
+                                            const year = parseInt(yearMatch[1]);
+
+                                            let semesterOrder = 1; // Güz
+                                            if (semester.includes("Bahar"))
+                                              semesterOrder = 2;
+                                            else if (semester.includes("Yaz"))
+                                              semesterOrder = 3;
+
+                                            return year * 10 + semesterOrder;
+                                          };
+
+                                          return (
+                                            getSemesterOrder(b.semester) -
+                                            getSemesterOrder(a.semester)
+                                          );
+                                        })[0]; // Get the most recent "--" attempt
+
+                                      const isSelected =
+                                        latestDashAttempt?.lesson_id ===
+                                        lesson.lesson_id;
+
+                                      return (
+                                        <tr
+                                          key={`${lesson.lesson_id}-${sessionIndex}`}
+                                          className="bg-white hover:bg-gray-50"
+                                        >
+                                          <td className="border border-gray-300 px-3 py-2 text-xs font-medium text-blue-600">
+                                            {sessionIndex === 0
+                                              ? lesson.lesson_id
+                                              : ""}
+                                          </td>
+                                          <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
+                                            {lesson.instructor &&
+                                            lesson.instructor !== "-"
+                                              ? lesson.instructor
+                                              : "-"}
+                                          </td>
+                                          <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
+                                            {session.location}
+                                          </td>
+                                          <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
+                                            {session.day}
+                                          </td>
+                                          <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
+                                            {session.time}
+                                          </td>
+                                          <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
+                                            {lesson.capacity}
+                                          </td>
+                                          <td className="border border-gray-300 px-3 py-2 text-xs text-gray-700">
+                                            {lesson.enrolled}
+                                          </td>
+                                          <td className="border border-gray-300 px-3 py-2 text-xs text-center">
+                                            {isSelected ? (
+                                              <button
+                                                onClick={() =>
+                                                  handleLessonDeselect(
+                                                    lesson.lesson_id
+                                                  )
+                                                }
+                                                className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition-colors"
+                                              >
+                                                Remove
+                                              </button>
+                                            ) : (
+                                              <button
+                                                onClick={() =>
+                                                  handleLessonSelect(
+                                                    lesson.lesson_id
+                                                  )
+                                                }
+                                                className="px-2 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
+                                              >
+                                                Add
+                                              </button>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    }
                                   )
                               )}
                             </tbody>
@@ -2272,8 +2344,11 @@ export default function CoursePopup({
                             lesson.sessions &&
                             lesson.sessions.map((session, sessionIndex) => {
                               // Check if this lesson is selected by finding the latest "--" attempt of the course
+                              // For elective courses, we need to check both the display course code and the original elective course code
                               const courseHistory = transcript.filter(
-                                (item) => item.code === displayCourseCode
+                                (item) =>
+                                  item.code === displayCourseCode ||
+                                  (isElective && item.code === planCourseCode)
                               );
                               const latestDashAttempt = courseHistory
                                 .filter((item) => item.grade === "--")

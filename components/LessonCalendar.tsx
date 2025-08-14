@@ -216,7 +216,7 @@ export default function LessonCalendar({
     const slots = [];
     const startHour = 8;
     const startMinute = 30;
-    const endHour = 18;
+    const endHour = 16;
     const endMinute = 0;
 
     for (let hour = startHour; hour <= endHour; hour++) {

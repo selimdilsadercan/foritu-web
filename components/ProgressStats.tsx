@@ -66,7 +66,7 @@ export default function ProgressStats({
   // Calculate progress metrics
   const calculateProgressMetrics = () => {
     const filteredTranscript = getTranscriptUpToSelected();
-    
+
     // Group courses by code and get only the last attempt for each course
     const courseGroups = new Map<string, TranscriptItem[]>();
 
@@ -250,7 +250,7 @@ export default function ProgressStats({
   );
 
   return (
-    <div className="w-full max-w-7xl mx-auto p-4 lg:p-6">
+    <div className="w-full max-w-7xl mx-auto mb-6">
       <div className="bg-white rounded-lg shadow-md p-4 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
           <div className="flex flex-wrap items-center gap-4">
@@ -268,7 +268,9 @@ export default function ProgressStats({
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-sm text-gray-600">GPA:</span>
-              <span className="text-lg font-bold text-purple-600">{progressMetrics.gpa}</span>
+              <span className="text-lg font-bold text-purple-600">
+                {progressMetrics.gpa}
+              </span>
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-sm text-gray-600">Courses:</span>
@@ -278,12 +280,17 @@ export default function ProgressStats({
             </div>
           </div>
           <div className="flex items-center space-x-3">
-            <span className="text-sm text-gray-500">{progressMetrics.totalCredits}/120</span>
+            <span className="text-sm text-gray-500">
+              {progressMetrics.totalCredits}/120
+            </span>
             <div className="w-24 bg-gray-200 rounded-full h-2">
               <div
                 className="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full transition-all duration-300"
                 style={{
-                  width: `${Math.min((progressMetrics.totalCredits / 120) * 100, 100)}%`,
+                  width: `${Math.min(
+                    (progressMetrics.totalCredits / 120) * 100,
+                    100
+                  )}%`,
                 }}
               ></div>
             </div>

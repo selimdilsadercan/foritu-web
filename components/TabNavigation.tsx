@@ -11,7 +11,7 @@ export default function TabNavigation({
   activeTab,
   onTabChange,
 }: TabNavigationProps) {
-  const tabs = [
+  const allTabs = [
     {
       id: "semesters" as TabType,
       label: "Semesters",
@@ -71,8 +71,16 @@ export default function TabNavigation({
     },
   ];
 
+  // Filter tabs based on environment - show JSON tab only in development
+  const tabs = allTabs.filter((tab) => {
+    if (tab.id === "json") {
+      return process.env.NODE_ENV === "development";
+    }
+    return true;
+  });
+
   return (
-    <div className="mb-6 max-w-7xl mx-auto px-4 lg:px-8">
+    <div className="mt-6 mb-2 max-w-7xl mx-auto px-4 lg:px-8">
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8" aria-label="Tabs">
           {tabs.map((tab) => (

@@ -118,6 +118,13 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<TabType>("semesters");
   const [selectedLessons, setSelectedLessons] = useState<SelectedLesson[]>([]);
 
+  // Ensure activeTab is valid for current environment
+  useEffect(() => {
+    if (activeTab === "json" && process.env.NODE_ENV !== "development") {
+      setActiveTab("semesters");
+    }
+  }, [activeTab]);
+
   // Load courses data from JSON file and get user's data in correct order
   useEffect(() => {
     // Prevent running multiple times if user is still loading
@@ -1015,25 +1022,21 @@ export default function Home() {
             !isLoading ? "flex-1" : "w-full"
           }`}
         >
-          {/* Compact Progress Summary */}
-          {selectedPlan.length > 0 && (
-            <ProgressStats
-              transcript={transcript}
-              selectedSemester={selectedSemester}
-              selectedPlan={selectedPlan}
-              coursesData={coursesData}
-            />
-          )}
-
           {selectedPlan.length > 0 && selectedSemester ? (
             <>
               {/* Tabs */}
               <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
 
               {/* Tab Content */}
-              <div className="px-4 lg:px-6 max-w-7xl mx-auto">
+              <div className="px-4 lg:px-6 max-w-7xl mx-auto mb-8 pt-6">
                 {activeTab === "semesters" ? (
                   <>
+                    <ProgressStats
+                      transcript={transcript}
+                      selectedSemester={selectedSemester}
+                      selectedPlan={selectedPlan}
+                      coursesData={coursesData}
+                    />
                     <SemesterGrid
                       selectedPlan={selectedPlan}
                       transcript={transcript}
@@ -1055,9 +1058,10 @@ export default function Home() {
                     userCourses={transcript}
                     selectedPlan={selectedPlan}
                   />
-                ) : (
+                ) : activeTab === "json" &&
+                  process.env.NODE_ENV === "development" ? (
                   <JsonPreview data={transcript} title="Transcript JSON Data" />
-                )}
+                ) : null}
               </div>
             </>
           ) : null}
