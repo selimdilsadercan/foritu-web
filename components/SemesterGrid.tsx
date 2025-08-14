@@ -139,8 +139,11 @@ export default function SemesterGrid({
     const latestAttempt = courseHistory[courseHistory.length - 1];
     const latestGrade = latestAttempt.grade;
 
-    // If the latest grade has an asterisk (planned grade), return it as is
-    if (latestGrade.endsWith("*")) return latestGrade;
+    // If the latest grade has an asterisk (planned grade), return it as is for display
+    // but treat it as completed for logic purposes
+    if (latestGrade.endsWith("*")) {
+      return latestGrade; // Return with asterisk for display
+    }
 
     // If the latest grade is not "--", return it as is
     if (latestGrade !== "--") return latestGrade;
@@ -220,6 +223,12 @@ export default function SemesterGrid({
 
     // If the latest grade is not "--", use it directly
     if (latestGrade !== "--") {
+      // Handle asterisk grades by removing the asterisk for comparison
+      let gradeForComparison = latestGrade;
+      if (latestGrade.endsWith("*")) {
+        gradeForComparison = latestGrade.replace("*", "");
+      }
+
       // Grade comparison logic - based on transcript grades
       const gradeOrder = [
         "FF",
@@ -240,7 +249,7 @@ export default function SemesterGrid({
         "AA",
         "BL",
       ];
-      const latestGradeIndex = gradeOrder.indexOf(latestGrade);
+      const latestGradeIndex = gradeOrder.indexOf(gradeForComparison);
       const minGradeIndex = gradeOrder.indexOf(minGrade);
 
       return latestGradeIndex >= minGradeIndex;
@@ -399,6 +408,21 @@ export default function SemesterGrid({
       }
     }
 
+    // Check space-normalized mappings (remove spaces for comparison)
+    const targetCodeNoSpaces = targetCourseCode.replace(/\s+/g, "");
+    for (const [mappedCode, alternatives] of Object.entries(courseMappings)) {
+      const mappedCodeNoSpaces = mappedCode.replace(/\s+/g, "");
+      if (mappedCodeNoSpaces === targetCodeNoSpaces) {
+        for (const alternative of alternatives) {
+          const alternativeMatch = filteredTranscript.find(
+            (t: TranscriptItem) =>
+              t.code === alternative && !planCourseCodes.has(t.code)
+          );
+          if (alternativeMatch) return alternativeMatch;
+        }
+      }
+    }
+
     // Check E suffix matching (e.g., BLG210E matches BLG210 and vice versa)
     const hasE = targetCourseCode.endsWith("E");
     const baseCode = hasE ? targetCourseCode.slice(0, -1) : targetCourseCode;
@@ -516,27 +540,38 @@ export default function SemesterGrid({
             return "bg-blue-500"; // Currently taken
           } else if (effectiveGrade === "?") {
             return "bg-green-600"; // Passed (assumed)
-          } else if (
-            [
-              "AA",
-              "BA",
-              "BA+",
-              "BB",
-              "BB+",
-              "CB",
-              "CB+",
-              "CC",
-              "CC+",
-              "DC",
-              "DC+",
-              "DD",
-              "DD+",
-              "BL",
-            ].includes(effectiveGrade)
-          ) {
-            return "bg-green-600"; // Passed (including conditional pass)
-          } else if (["FD", "FF", "VF"].includes(effectiveGrade)) {
-            return "bg-red-400"; // Failed (more subtle)
+          } else if (effectiveGrade.endsWith("*")) {
+            // Check if this star grade is from the current semester
+            const latestAttempt = courseHistory[courseHistory.length - 1];
+            if (latestAttempt.semester === selectedSemester) {
+              return "bg-blue-500"; // Currently taken (star grade in current semester)
+            } else {
+              return "bg-green-600"; // Passed (star grade from past semester)
+            }
+          } else {
+            // Handle regular grades
+            if (
+              [
+                "AA",
+                "BA",
+                "BA+",
+                "BB",
+                "BB+",
+                "CB",
+                "CB+",
+                "CC",
+                "CC+",
+                "DC",
+                "DC+",
+                "DD",
+                "DD+",
+                "BL",
+              ].includes(effectiveGrade)
+            ) {
+              return "bg-green-600"; // Passed (including conditional pass)
+            } else if (["FD", "FF", "VF"].includes(effectiveGrade)) {
+              return "bg-red-400"; // Failed (more subtle)
+            }
           }
         }
       }
@@ -553,27 +588,38 @@ export default function SemesterGrid({
         return "bg-blue-500"; // Currently taken
       } else if (effectiveGrade === "?") {
         return "bg-green-600"; // Passed (assumed)
-      } else if (
-        [
-          "AA",
-          "BA",
-          "BA+",
-          "BB",
-          "BB+",
-          "CB",
-          "CB+",
-          "CC",
-          "CC+",
-          "DC",
-          "DC+",
-          "DD",
-          "DD+",
-          "BL",
-        ].includes(effectiveGrade)
-      ) {
-        return "bg-green-600"; // Passed (including conditional pass)
-      } else if (["FD", "FF", "VF"].includes(effectiveGrade)) {
-        return "bg-red-400"; // Failed (more subtle)
+      } else if (effectiveGrade.endsWith("*")) {
+        // Check if this star grade is from the current semester
+        const latestAttempt = courseHistory[courseHistory.length - 1];
+        if (latestAttempt.semester === selectedSemester) {
+          return "bg-blue-500"; // Currently taken (star grade in current semester)
+        } else {
+          return "bg-green-600"; // Passed (star grade from past semester)
+        }
+      } else {
+        // Handle regular grades
+        if (
+          [
+            "AA",
+            "BA",
+            "BA+",
+            "BB",
+            "BB+",
+            "CB",
+            "CB+",
+            "CC",
+            "CC+",
+            "DC",
+            "DC+",
+            "DD",
+            "DD+",
+            "BL",
+          ].includes(effectiveGrade)
+        ) {
+          return "bg-green-600"; // Passed (including conditional pass)
+        } else if (["FD", "FF", "VF"].includes(effectiveGrade)) {
+          return "bg-red-400"; // Failed (more subtle)
+        }
       }
     }
 

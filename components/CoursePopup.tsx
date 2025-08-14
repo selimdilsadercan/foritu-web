@@ -193,11 +193,27 @@ export default function CoursePopup({
   const handleLessonSelect = (lessonId: string) => {
     // Find the latest "--" attempt of the course and update it with lesson_id
     // For elective courses, we need to check both the display course code and the original elective course code
-    const courseHistory = transcript.filter(
+    let courseHistory = transcript.filter(
       (item) =>
         item.code === displayCourseCode ||
         (isElective && item.code === planCourseCode)
     );
+
+    // For elective courses, if no course history found with the specific course code,
+    // try to find any course with "--" grade in the current semester
+    if (isElective && courseHistory.length === 0 && selectedSemester) {
+      console.log(
+        "No course history found for elective, looking for any course with -- grade in current semester"
+      );
+      courseHistory = transcript.filter(
+        (item) =>
+          item.grade === "--" &&
+          item.semester === selectedSemester &&
+          item.code.includes("Elective") // Look for elective courses
+      );
+      console.log("Found elective courses with -- grade:", courseHistory);
+    }
+
     const latestDashAttempt = courseHistory
       .filter((item) => item.grade === "--")
       .sort((a, b) => {
@@ -236,11 +252,26 @@ export default function CoursePopup({
   const handleLessonDeselect = (lessonId: string) => {
     // Find the latest "--" attempt of the course and remove lesson_id
     // For elective courses, we need to check both the display course code and the original elective course code
-    const courseHistory = transcript.filter(
+    let courseHistory = transcript.filter(
       (item) =>
         item.code === displayCourseCode ||
         (isElective && item.code === planCourseCode)
     );
+
+    // For elective courses, if no course history found with the specific course code,
+    // try to find any course with "--" grade in the current semester
+    if (isElective && courseHistory.length === 0 && selectedSemester) {
+      console.log(
+        "No course history found for elective, looking for any course with -- grade in current semester"
+      );
+      courseHistory = transcript.filter(
+        (item) =>
+          item.grade === "--" &&
+          item.semester === selectedSemester &&
+          item.code.includes("Elective") // Look for elective courses
+      );
+      console.log("Found elective courses with -- grade:", courseHistory);
+    }
     const latestDashAttempt = courseHistory
       .filter((item) => item.grade === "--")
       .sort((a, b) => {
@@ -333,19 +364,35 @@ export default function CoursePopup({
 
   const getGradeStatus = (grade: string) => {
     if (!grade || grade === "") return "In Progress";
+
+    // Handle asterisk grades by removing the asterisk for status determination
+    let gradeForComparison = grade;
+    if (grade.endsWith("*")) {
+      gradeForComparison = grade.replace("*", "");
+    }
+
     if (
-      grade === "AA" ||
-      grade === "BA" ||
-      grade === "BB" ||
-      grade === "CB" ||
-      grade === "CB+" ||
-      grade === "CC" ||
-      grade === "BL"
+      gradeForComparison === "AA" ||
+      gradeForComparison === "BA" ||
+      gradeForComparison === "BB" ||
+      gradeForComparison === "CB" ||
+      gradeForComparison === "CB+" ||
+      gradeForComparison === "CC" ||
+      gradeForComparison === "BL"
     )
       return "Passed";
-    if (grade === "DC" || grade === "DC+" || grade === "DD")
+    if (
+      gradeForComparison === "DC" ||
+      gradeForComparison === "DC+" ||
+      gradeForComparison === "DD"
+    )
       return "Conditional Pass";
-    if (grade === "FD" || grade === "FF" || grade === "VF") return "Failed";
+    if (
+      gradeForComparison === "FD" ||
+      gradeForComparison === "FF" ||
+      gradeForComparison === "VF"
+    )
+      return "Failed";
     return "Unknown";
   };
 
@@ -774,6 +821,73 @@ export default function CoursePopup({
     } else {
       return "Failed";
     }
+  };
+
+  // Function to check if a time slot conflicts with other selected lessons
+  const hasTimeSlotConflict = (lessonId: string): boolean => {
+    if (!lessonsData) return false;
+
+    // Get the current lesson details
+    const currentLesson = lessonsData.lessons.find(
+      (lesson) => lesson.lesson_id === lessonId
+    );
+    if (!currentLesson || !currentLesson.sessions) return false;
+
+    // Get all selected lesson IDs from transcript
+    const selectedLessonIds = transcript
+      .filter((item) => item.lesson_id && item.lesson_id !== lessonId)
+      .map((item) => item.lesson_id!);
+
+    // Check each selected lesson for time conflicts
+    for (const selectedLessonId of selectedLessonIds) {
+      const selectedLesson = lessonsData.lessons.find(
+        (lesson) => lesson.lesson_id === selectedLessonId
+      );
+      if (!selectedLesson || !selectedLesson.sessions) continue;
+
+      // Check for conflicts between current lesson sessions and selected lesson sessions
+      for (const currentSession of currentLesson.sessions) {
+        for (const selectedSession of selectedLesson.sessions) {
+          // Check if sessions are on the same day
+          if (currentSession.day === selectedSession.day) {
+            // Check if time slots overlap
+            if (doTimeSlotsOverlap(currentSession.time, selectedSession.time)) {
+              return true; // Conflict found
+            }
+          }
+        }
+      }
+    }
+
+    return false; // No conflicts found
+  };
+
+  // Function to check if two time slots overlap
+  const doTimeSlotsOverlap = (time1: string, time2: string): boolean => {
+    // Parse time slots (format: "08:30/10:29")
+    const parseTimeSlot = (timeSlot: string) => {
+      const [startTime, endTime] = timeSlot.split("/");
+      const parseTime = (time: string) => {
+        const [hours, minutes] = time.split(":").map(Number);
+        return hours * 60 + minutes; // Convert to minutes for easier comparison
+      };
+      return {
+        start: parseTime(startTime),
+        end: parseTime(endTime),
+      };
+    };
+
+    const slot1 = parseTimeSlot(time1);
+    const slot2 = parseTimeSlot(time2);
+
+    // Check for overlap: slot1 starts before slot2 ends AND slot1 ends after slot2 starts
+    const hasOverlap = slot1.start < slot2.end && slot1.end > slot2.start;
+
+    if (hasOverlap) {
+      console.log(`Time overlap detected: ${time1} overlaps with ${time2}`);
+    }
+
+    return hasOverlap;
   };
 
   if (!isOpen) return null;
@@ -1725,9 +1839,11 @@ export default function CoursePopup({
 
                     return (
                       <div className="border-t border-gray-200 pt-6">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4">
-                          Active Lessons
-                        </h3>
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-semibold text-gray-800">
+                            Active Lessons
+                          </h3>
+                        </div>
                         <div className="overflow-x-auto">
                           <table className="w-full border-collapse border border-gray-300">
                             <thead>
@@ -1766,12 +1882,28 @@ export default function CoursePopup({
                                     (session, sessionIndex) => {
                                       // Check if this lesson is selected by finding the latest "--" attempt of the course
                                       // For elective courses, we need to check both the display course code and the original elective course code
-                                      const courseHistory = transcript.filter(
+                                      let courseHistory = transcript.filter(
                                         (item) =>
                                           item.code === displayCourseCode ||
                                           (isElective &&
                                             item.code === planCourseCode)
                                       );
+
+                                      // For elective courses, if no course history found with the specific course code,
+                                      // try to find any course with "--" grade in the current semester
+                                      if (
+                                        isElective &&
+                                        courseHistory.length === 0 &&
+                                        selectedSemester
+                                      ) {
+                                        courseHistory = transcript.filter(
+                                          (item) =>
+                                            item.grade === "--" &&
+                                            item.semester ===
+                                              selectedSemester &&
+                                            item.code.includes("Elective") // Look for elective courses
+                                        );
+                                      }
                                       const latestDashAttempt = courseHistory
                                         .filter((item) => item.grade === "--")
                                         .sort((a, b) => {
@@ -1853,7 +1985,23 @@ export default function CoursePopup({
                                                     lesson.lesson_id
                                                   )
                                                 }
-                                                className="px-2 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
+                                                disabled={hasTimeSlotConflict(
+                                                  lesson.lesson_id
+                                                )}
+                                                className={`px-2 py-1 text-xs rounded transition-colors ${
+                                                  hasTimeSlotConflict(
+                                                    lesson.lesson_id
+                                                  )
+                                                    ? "bg-gray-400 text-gray-200 cursor-not-allowed"
+                                                    : "bg-green-500 text-white hover:bg-green-600"
+                                                }`}
+                                                title={
+                                                  hasTimeSlotConflict(
+                                                    lesson.lesson_id
+                                                  )
+                                                    ? "Time slot conflicts with another selected lesson"
+                                                    : "Add this lesson"
+                                                }
                                               >
                                                 Add
                                               </button>
@@ -2305,9 +2453,11 @@ export default function CoursePopup({
 
               return (
                 <div className="border-t border-gray-200 pt-6">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4">
-                    Active Lessons
-                  </h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-800">
+                      Active Lessons
+                    </h3>
+                  </div>
                   <div className="overflow-x-auto">
                     <table className="w-full border-collapse border border-gray-300">
                       <thead>
@@ -2345,11 +2495,26 @@ export default function CoursePopup({
                             lesson.sessions.map((session, sessionIndex) => {
                               // Check if this lesson is selected by finding the latest "--" attempt of the course
                               // For elective courses, we need to check both the display course code and the original elective course code
-                              const courseHistory = transcript.filter(
+                              let courseHistory = transcript.filter(
                                 (item) =>
                                   item.code === displayCourseCode ||
                                   (isElective && item.code === planCourseCode)
                               );
+
+                              // For elective courses, if no course history found with the specific course code,
+                              // try to find any course with "--" grade in the current semester
+                              if (
+                                isElective &&
+                                courseHistory.length === 0 &&
+                                selectedSemester
+                              ) {
+                                courseHistory = transcript.filter(
+                                  (item) =>
+                                    item.grade === "--" &&
+                                    item.semester === selectedSemester &&
+                                    item.code.includes("Elective") // Look for elective courses
+                                );
+                              }
                               const latestDashAttempt = courseHistory
                                 .filter((item) => item.grade === "--")
                                 .sort((a, b) => {
@@ -2424,7 +2589,19 @@ export default function CoursePopup({
                                         onClick={() =>
                                           handleLessonSelect(lesson.lesson_id)
                                         }
-                                        className="px-2 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
+                                        disabled={hasTimeSlotConflict(
+                                          lesson.lesson_id
+                                        )}
+                                        className={`px-2 py-1 text-xs rounded transition-colors ${
+                                          hasTimeSlotConflict(lesson.lesson_id)
+                                            ? "bg-gray-400 text-gray-200 cursor-not-allowed"
+                                            : "bg-green-500 text-white hover:bg-green-600"
+                                        }`}
+                                        title={
+                                          hasTimeSlotConflict(lesson.lesson_id)
+                                            ? "Time slot conflicts with another selected lesson"
+                                            : "Add this lesson"
+                                        }
                                       >
                                         Add
                                       </button>

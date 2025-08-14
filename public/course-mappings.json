@@ -1,10 +1,14 @@
 {
   "BLG101E": ["BBF 101E"],
   "BBF101E": ["BLG 101E"],
+  "BLG 101": ["BBF 101"],
+  "BBF 101": ["BLG 101"],
+  "BLG101": ["BBF101"],
+  "BBF101": ["BLG101"],
   "MAT210E": ["BLG 210E"],
   "BLG210E": ["MAT 210E"],
   "ING201A": ["ING 201"],
   "ING201": ["ING 201A"],
   "BLG242EL": ["BLG 242E"],
   "BLG242E": ["BLG 242EL"]
-} 
+}
