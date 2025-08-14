@@ -2,12 +2,26 @@
 
 import Client, { Environment } from '@/lib/client';
 
+export interface SelectedLesson {
+  courseCode: string;
+  lessonId: string;
+  session: {
+    location: string;
+    day: string;
+    time: string;
+    room: string;
+  };
+  instructor: string;
+  deliveryMode: string;
+}
+
 export interface TranscriptCourse {
   semester: string;
   code: string;
   name: string;
   credits: string;
   grade: string;
+  selectedLessons?: SelectedLesson[];
 }
 
 export interface ParseTranscriptResult {

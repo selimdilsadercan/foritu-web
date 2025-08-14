@@ -10,13 +10,13 @@ declare global {
 }
 
 interface AdSenseProps {
-  adSlot: string;
+  adSlot?: string;
   adFormat?: 'auto' | 'fluid';
   style?: React.CSSProperties;
   className?: string;
 }
 
-export default function AdSense({ adSlot, adFormat = 'auto', style, className }: AdSenseProps) {
+export default function AdSense({ adSlot = "3015995162", adFormat = 'auto', style, className }: AdSenseProps) {
   useEffect(() => {
     try {
       // Push the ad to Google AdSense

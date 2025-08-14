@@ -52,7 +52,7 @@ export default function RootPage() {
           
           {/* Top Ad */}
           <div className="bg-white py-4 px-4 lg:px-6 border-b">
-            <AdSense adSlot="9322735635196756" className="text-center" />
+            <AdSense className="text-center" />
           </div>
           
           {/* Main Content */}
@@ -83,7 +83,7 @@ export default function RootPage() {
                   
                   {/* Middle Ad */}
                   <div className="py-4">
-                    <AdSense adSlot="9322735635196756" className="text-center" />
+                    <AdSense className="text-center" />
                   </div>
                   
                   <p className="text-sm text-gray-500">
@@ -96,7 +96,7 @@ export default function RootPage() {
           
           {/* Bottom Ad */}
           <div className="bg-white py-4 px-4 lg:px-6 border-t">
-            <AdSense adSlot="9322735635196756" className="text-center" />
+            <AdSense className="text-center" />
           </div>
         </div>
       </SignedOut>

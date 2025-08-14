@@ -1,15 +1,14 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import CoursePopup from './CoursePopup';
+import { useMemo } from "react";
 
 interface Course {
-  type: 'course';
+  type: "course";
   code: string;
 }
 
 interface Elective {
-  type: 'elective';
+  type: "elective";
   name: string;
   category: string;
   options: string[];
@@ -43,180 +42,348 @@ interface CourseInfo {
 }
 
 interface SemesterGridProps {
-  plan: SemesterItem[][];
-  transcript?: TranscriptItem[];
-  selectedSemester?: string | null;
+  selectedPlan: SemesterItem[][];
+  transcript: TranscriptItem[];
+  selectedSemester: string | null;
+  coursesData: CourseInfo[];
+  courseMappings: Record<string, string[]>;
+  onCourseClick: (
+    courseCode: string,
+    isElective: boolean,
+    matchedCourseCode?: string,
+    hasWarning?: boolean
+  ) => void;
 }
 
-export default function SemesterGrid({ plan, transcript = [], selectedSemester }: SemesterGridProps) {
-  const [popupOpen, setPopupOpen] = useState(false);
-  const [selectedCourse, setSelectedCourse] = useState<string>('');
-  const [isSelectedElective, setIsSelectedElective] = useState(false);
-  const [hasWarningIcon, setHasWarningIcon] = useState(false);
-  const [coursesData, setCoursesData] = useState<CourseInfo[]>([]);
-  const [courseMappings, setCourseMappings] = useState<Record<string, string[]>>({});
+export default function SemesterGrid({
+  selectedPlan,
+  transcript,
+  selectedSemester,
+  coursesData,
+  courseMappings,
+  onCourseClick,
+}: SemesterGridProps) {
+  // Get transcript data up to the selected semester
+  const getTranscriptUpToSelected = () => {
+    if (!selectedSemester) return [];
 
-  // Load courses data and course mappings from JSON files
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        // Load courses data
-        const coursesResponse = await fetch('/courses.json');
-        const coursesData = await coursesResponse.json();
-        setCoursesData(coursesData);
-        
-        // Load course mappings
-        const mappingsResponse = await fetch('/course-mappings.json');
-        const mappingsData = await mappingsResponse.json();
-        setCourseMappings(mappingsData);
-      } catch (error) {
-        console.error('Error loading data:', error);
+    // Get all unique semesters from transcript and sort them
+    const semesters = [...new Set(transcript.map((item) => item.semester))];
+    const sortedSemesters = semesters.sort((a, b) => {
+      const getYear = (semester: string) => {
+        const yearMatch = semester.match(/(\d{4})/);
+        return yearMatch ? parseInt(yearMatch[1]) : 0;
+      };
+
+      const getSemesterOrder = (semester: string) => {
+        if (semester.includes("Fall")) return 1;
+        if (semester.includes("Spring")) return 2;
+        if (semester.includes("Summer")) return 3;
+        return 0;
+      };
+
+      const yearA = getYear(a);
+      const yearB = getYear(b);
+
+      if (yearA !== yearB) return yearA - yearB;
+
+      return getSemesterOrder(a) - getSemesterOrder(b);
+    });
+
+    // Find the index of the selected semester
+    const selectedIndex = sortedSemesters.indexOf(selectedSemester);
+    if (selectedIndex === -1) return [];
+
+    // Get semesters up to and including the selected semester
+    const semestersUpToSelected = sortedSemesters.slice(0, selectedIndex + 1);
+
+    // Return all transcript items from semesters up to the selected semester
+    return transcript.filter((item) =>
+      semestersUpToSelected.includes(item.semester)
+    );
+  };
+
+  const filteredTranscript = useMemo(
+    () => getTranscriptUpToSelected(),
+    [transcript, selectedSemester]
+  );
+
+  // Get all course codes from the plan
+  const planCourseCodes = useMemo(() => {
+    const codes = new Set<string>();
+    selectedPlan.forEach((semester: SemesterItem[]) => {
+      semester.forEach((item: SemesterItem) => {
+        if (item.type === "course") {
+          codes.add(item.code);
+        } else if (item.type === "elective") {
+          // Add elective options to the set
+          item.options?.forEach((option: string) => codes.add(option));
+        }
+      });
+    });
+    return codes;
+  }, [selectedPlan]);
+
+  // Helper function to format course code
+  const formatCourseCode = (code: string) => {
+    return code.replace(/\s+/g, "");
+  };
+
+  // Helper function to get effective grade for a course based on selected semester
+  const getEffectiveGrade = (courseCode: string): string => {
+    const courseHistory = filteredTranscript.filter(
+      (t: TranscriptItem) => t.code === courseCode
+    );
+    if (courseHistory.length === 0) return "";
+
+    const latestAttempt = courseHistory[courseHistory.length - 1];
+    const latestGrade = latestAttempt.grade;
+
+    // If the latest grade has an asterisk (planned grade), return it as is
+    if (latestGrade.endsWith("*")) return latestGrade;
+
+    // If the latest grade is not "--", return it as is
+    if (latestGrade !== "--") return latestGrade;
+
+    // If the latest grade is "--" (planned), check if we're viewing a semester after it
+    if (selectedSemester && latestAttempt.semester !== selectedSemester) {
+      // Compare semesters to see if selected semester is after the planned semester
+      const plannedSemester = latestAttempt.semester;
+
+      // Extract year and semester order for comparison
+      const getSemesterOrder = (semester: string) => {
+        const yearMatch = semester.match(/(\d{4})/);
+        if (!yearMatch) return 0;
+        const year = parseInt(yearMatch[1]);
+
+        let semesterOrder = 1; // Güz
+        if (semester.includes("Bahar")) semesterOrder = 2;
+        else if (semester.includes("Yaz")) semesterOrder = 3;
+
+        return year * 10 + semesterOrder;
+      };
+
+      const plannedOrder = getSemesterOrder(plannedSemester);
+      const selectedOrder = getSemesterOrder(selectedSemester);
+
+      // If selected semester is after the planned semester, show as passed with "?"
+      if (selectedOrder > plannedOrder) {
+        return "?"; // Passed (assumed)
       }
-    };
+    }
 
-    loadData();
-  }, []);
+    return latestGrade; // Return "--" if still in the same or earlier semester
+  };
 
   // Function to check if a prerequisite is satisfied
-  const isPrerequisiteSatisfied = useCallback((prereqCode: string, minGrade: string): boolean => {
+  const isPrerequisiteSatisfied = (
+    prereqCode: string,
+    minGrade: string
+  ): boolean => {
     // First check for exact match (with and without spaces)
-    let courseHistory = transcript.filter(t => t.code === prereqCode);
-    
+    let courseHistory = filteredTranscript.filter(
+      (t: TranscriptItem) => t.code === prereqCode
+    );
+
     // If no exact match, also check with spaces removed
     if (courseHistory.length === 0) {
-      const prereqCodeNoSpaces = prereqCode.replace(/\s+/g, '');
-      courseHistory = transcript.filter(t => t.code.replace(/\s+/g, '') === prereqCodeNoSpaces);
+      const prereqCodeNoSpaces = prereqCode.replace(/\s+/g, "");
+      courseHistory = filteredTranscript.filter(
+        (t: TranscriptItem) => t.code.replace(/\s+/g, "") === prereqCodeNoSpaces
+      );
     }
-    
+
     // If no exact match, try to find equivalent course using course mappings
     if (courseHistory.length === 0) {
+      // Check if the target course has explicit mappings in course-mappings.json
       const alternatives = courseMappings[prereqCode] || [];
+
+      // Look for any of the alternative courses in the available courses
       for (const alternativeCode of alternatives) {
-        const match = transcript.find(t => t.code === alternativeCode);
-        if (match) {
-          courseHistory = transcript.filter(t => t.code === alternativeCode);
+        const equivalentMatch = filteredTranscript.find(
+          (t: TranscriptItem) => t.code === alternativeCode
+        );
+        if (equivalentMatch) {
+          courseHistory = filteredTranscript.filter(
+            (t: TranscriptItem) => t.code === equivalentMatch.code
+          );
           break;
         }
       }
     }
-    
+
     if (courseHistory.length === 0) return false;
-    
-    const latestGrade = courseHistory[courseHistory.length - 1].grade;
-    if (latestGrade === '--') return false; // Currently taken
-    
-    // Grade comparison logic - based on transcript grades
-    const gradeOrder = ['FF', 'FD', 'VF', 'DD', 'DD+', 'DC', 'DC+', 'CC', 'CC+', 'CB', 'CB+', 'BB', 'BB+', 'BA', 'BA+', 'AA', 'BL'];
-    const latestGradeIndex = gradeOrder.indexOf(latestGrade);
-    const minGradeIndex = gradeOrder.indexOf(minGrade);
-    
-    return latestGradeIndex >= minGradeIndex;
-  }, [transcript, courseMappings]);
 
-  // Function to check if a prerequisite group is satisfied (at least one course in group)
-  const isPrerequisiteGroupSatisfied = useCallback((group: PrerequisiteGroup): boolean => {
-    return group.courses.some(prereq => isPrerequisiteSatisfied(prereq.code, prereq.min));
-  }, [isPrerequisiteSatisfied]);
+    // Get the latest attempt for this prerequisite course
+    const latestAttempt = courseHistory[courseHistory.length - 1];
+    const latestGrade = latestAttempt.grade;
 
-  // Function to get prerequisites for a course
-  const getPrerequisites = useCallback((code: string): PrerequisiteGroup[] | undefined => {
-    const course = coursesData.find(c => c.code === code);
-    return course?.prerequisites;
-  }, [coursesData]);
+    // If the latest grade is not "--", use it directly
+    if (latestGrade !== "--") {
+      // Grade comparison logic - based on transcript grades
+      const gradeOrder = [
+        "FF",
+        "FD",
+        "VF",
+        "DD",
+        "DD+",
+        "DC",
+        "DC+",
+        "CC",
+        "CC+",
+        "CB",
+        "CB+",
+        "BB",
+        "BB+",
+        "BA",
+        "BA+",
+        "AA",
+        "BL",
+      ];
+      const latestGradeIndex = gradeOrder.indexOf(latestGrade);
+      const minGradeIndex = gradeOrder.indexOf(minGrade);
 
-  // Function to get course name from courses.json
-  const getCourseNameFromData = useCallback((code: string): string | undefined => {
-    const course = coursesData.find(c => c.code === code);
-    return course?.name;
-  }, [coursesData]);
+      return latestGradeIndex >= minGradeIndex;
+    }
 
-  // Function to check if a course has unsatisfied prerequisites
-  const hasUnsatisfiedPrerequisites = useCallback((courseCode: string): boolean => {
-    const prerequisites = getPrerequisites(courseCode);
-    if (!prerequisites || prerequisites.length === 0) return false;
-    
-    // Check if any group is not satisfied
-    return prerequisites.some(group => !isPrerequisiteGroupSatisfied(group));
-  }, [getPrerequisites, isPrerequisiteGroupSatisfied]);
+    // If the latest grade is "--" (planned), check if we're viewing a semester after it
+    if (selectedSemester && latestAttempt.semester !== selectedSemester) {
+      // For planned courses, we need to check if the selected semester comes after the planned semester
+      const plannedSemester = latestAttempt.semester;
 
-    const getItemColor = (item: SemesterItem) => {
-    if (item.type === 'elective') {
-      // For electives, check if there's an assigned course and use its grade for coloring
-      const assignedCourse = getAssignedCourseForElective(item.name);
-      if (assignedCourse) {
-        const courseHistory = transcript.filter(t => t.code === assignedCourse.code);
-        if (courseHistory.length > 0) {
-          const latestGrade = courseHistory[courseHistory.length - 1].grade;
-          if (latestGrade === '--') {
-            return 'bg-blue-500'; // Currently taken
-          } else if (['AA', 'BA', 'BA+', 'BB', 'BB+', 'CB', 'CB+', 'CC', 'CC+', 'DC', 'DC+', 'DD', 'DD+', 'BL'].includes(latestGrade)) {
-            return 'bg-green-600'; // Passed (including conditional pass)
-          } else if (['FD', 'FF', 'VF'].includes(latestGrade)) {
-            return 'bg-red-400'; // Failed (more subtle)
-          }
+      // If the planned semester is from the plan (e.g., "Semester 1"), we need to compare differently
+      if (plannedSemester.startsWith("Semester ")) {
+        // Extract semester number from plan
+        const planSemesterNum = parseInt(
+          plannedSemester.replace("Semester ", "")
+        );
+
+        // Extract semester number from selected semester
+        const selectedSemesterNum = parseInt(
+          selectedSemester.replace(/[^0-9]/g, "")
+        );
+
+        // If selected semester is after the planned semester, consider it as passed
+        if (selectedSemesterNum > planSemesterNum) {
+          // Grade comparison logic for planned courses (assumed pass)
+          const gradeOrder = [
+            "FF",
+            "FD",
+            "VF",
+            "DD",
+            "DD+",
+            "DC",
+            "DC+",
+            "CC",
+            "CC+",
+            "CB",
+            "CB+",
+            "BB",
+            "BB+",
+            "BA",
+            "BA+",
+            "AA",
+            "BL",
+          ];
+          const minGradeIndex = gradeOrder.indexOf(minGrade);
+
+          // Planned courses are considered as passing with "CC" grade
+          const assumedGradeIndex = gradeOrder.indexOf("CC");
+
+          return assumedGradeIndex >= minGradeIndex;
+        }
+      } else {
+        // For regular transcript semesters, use the existing logic
+        const getSemesterOrder = (semester: string) => {
+          const yearMatch = semester.match(/(\d{4})/);
+          if (!yearMatch) return 0;
+          const year = parseInt(yearMatch[1]);
+
+          let semesterOrder = 1; // Güz
+          if (semester.includes("Bahar")) semesterOrder = 2;
+          else if (semester.includes("Yaz")) semesterOrder = 3;
+
+          return year * 10 + semesterOrder;
+        };
+
+        const plannedOrder = getSemesterOrder(plannedSemester);
+        const selectedOrder = getSemesterOrder(selectedSemester);
+
+        // If selected semester is after the planned semester, consider it as passed
+        if (selectedOrder > plannedOrder) {
+          // Grade comparison logic for "?" grade (assumed pass)
+          const gradeOrder = [
+            "FF",
+            "FD",
+            "VF",
+            "DD",
+            "DD+",
+            "DC",
+            "DC+",
+            "CC",
+            "CC+",
+            "CB",
+            "CB+",
+            "BB",
+            "BB+",
+            "BA",
+            "BA+",
+            "AA",
+            "BL",
+          ];
+          const minGradeIndex = gradeOrder.indexOf(minGrade);
+
+          // "?" grade is considered as a passing grade, so it should satisfy most prerequisites
+          // We'll treat it as equivalent to "CC" (minimum passing grade)
+          const assumedGradeIndex = gradeOrder.indexOf("CC");
+
+          return assumedGradeIndex >= minGradeIndex;
         }
       }
-      return 'bg-purple-500'; // Default for electives with no assigned course
     }
-    
-    // For courses, check if they have been taken and their grade
-    const courseHistory = transcript.filter(t => t.code === item.code);
-    if (courseHistory.length > 0) {
-      const latestGrade = courseHistory[courseHistory.length - 1].grade;
-      if (latestGrade === '--') {
-        return 'bg-blue-500'; // Currently taken
-      } else if (['AA', 'BA', 'BA+', 'BB', 'BB+', 'CB', 'CB+', 'CC', 'CC+', 'DC', 'DC+', 'DD', 'DD+', 'BL'].includes(latestGrade)) {
-        return 'bg-green-600'; // Passed (including conditional pass)
-      } else if (['FD', 'FF', 'VF'].includes(latestGrade)) {
-        return 'bg-red-400'; // Failed (more subtle)
-      }
-    }
-    
-    return 'bg-purple-500'; // Default for not taken
+
+    return false; // Currently taken or not yet taken
   };
 
-  const formatCourseCode = (code: string) => {
-    return code.replace(/\s+/g, '');
+  // Function to check if a prerequisite group is satisfied (at least one course in group)
+  const isPrerequisiteGroupSatisfied = (group: PrerequisiteGroup): boolean => {
+    return group.courses.some((prereq) =>
+      isPrerequisiteSatisfied(prereq.code, prereq.min)
+    );
   };
 
-
-
-  const handleCourseClick = (courseCode: string, isElective: boolean = false, matchedCourseCode?: string, hasWarning: boolean = false) => {
-    setSelectedCourse(courseCode);
-    setIsSelectedElective(isElective);
-    setHasWarningIcon(hasWarning);
-    setPopupOpen(true);
-    // Store the matched course code for the popup to use
-    if (matchedCourseCode) {
-      // We'll pass this information to the popup through the courseName parameter
-      const matchedCourse = transcript.find(t => t.code === matchedCourseCode);
-      if (matchedCourse) {
-        // This will be used in the popup to show the matched course info
-        setSelectedCourse(`${courseCode}|${matchedCourseCode}`);
-      }
-    }
+  // Function to get prerequisites for a course
+  const getPrerequisites = (code: string): PrerequisiteGroup[] | undefined => {
+    const course = coursesData.find((c) => c.code === code);
+    return course?.prerequisites;
   };
 
-  // Helper function to get the actual course name from transcript
-  const getCourseNameFromTranscript = (courseCode: string) => {
-    const courseHistory = transcript.filter(t => t.code === courseCode);
-    if (courseHistory.length > 0) {
-      return courseHistory[courseHistory.length - 1].name;
-    }
-    return undefined;
+  // Function to check if a course has unsatisfied prerequisites
+  const hasUnsatisfiedPrerequisites = (courseCode: string): boolean => {
+    const prerequisites = getPrerequisites(courseCode);
+    if (!prerequisites || prerequisites.length === 0) return false;
+
+    // Check if any group is not satisfied
+    return prerequisites.some((group) => !isPrerequisiteGroupSatisfied(group));
   };
 
   // Helper function to find a course using course mappings and E suffix matching
-  const findCourseByMapping = (targetCourseCode: string, planCourseCodes: Set<string>) => {
+  const findCourseByMapping = (
+    targetCourseCode: string,
+    planCourseCodes: Set<string>
+  ) => {
     // First, check if there's an exact match
-    const exactMatch = transcript.find(t => t.code === targetCourseCode);
+    const exactMatch = filteredTranscript.find(
+      (t: TranscriptItem) => t.code === targetCourseCode
+    );
     if (exactMatch) return exactMatch;
 
     // Check course mappings from course-mappings.json
     const mappedCourses = courseMappings[targetCourseCode] || [];
     for (const mappedCourse of mappedCourses) {
-      const mappedMatch = transcript.find(t => 
-        t.code === mappedCourse && !planCourseCodes.has(t.code)
+      const mappedMatch = filteredTranscript.find(
+        (t: TranscriptItem) =>
+          t.code === mappedCourse && !planCourseCodes.has(t.code)
       );
       if (mappedMatch) return mappedMatch;
     }
@@ -224,27 +391,28 @@ export default function SemesterGrid({ plan, transcript = [], selectedSemester }
     // Check reverse mappings (if target course is in the mapped courses)
     for (const [mappedCode, alternatives] of Object.entries(courseMappings)) {
       if (alternatives.includes(targetCourseCode)) {
-        const reverseMatch = transcript.find(t => 
-          t.code === mappedCode && !planCourseCodes.has(t.code)
+        const reverseMatch = filteredTranscript.find(
+          (t: TranscriptItem) =>
+            t.code === mappedCode && !planCourseCodes.has(t.code)
         );
         if (reverseMatch) return reverseMatch;
       }
     }
 
     // Check E suffix matching (e.g., BLG210E matches BLG210 and vice versa)
-    const hasE = targetCourseCode.endsWith('E');
+    const hasE = targetCourseCode.endsWith("E");
     const baseCode = hasE ? targetCourseCode.slice(0, -1) : targetCourseCode;
-    const eCode = hasE ? targetCourseCode : targetCourseCode + 'E';
-    
+    const eCode = hasE ? targetCourseCode : targetCourseCode + "E";
+
     // Try matching with E suffix
-    const eMatch = transcript.find(t => 
-      t.code === eCode && !planCourseCodes.has(t.code)
+    const eMatch = filteredTranscript.find(
+      (t: TranscriptItem) => t.code === eCode && !planCourseCodes.has(t.code)
     );
     if (eMatch) return eMatch;
 
     // Try matching without E suffix
-    const baseMatch = transcript.find(t => 
-      t.code === baseCode && !planCourseCodes.has(t.code)
+    const baseMatch = filteredTranscript.find(
+      (t: TranscriptItem) => t.code === baseCode && !planCourseCodes.has(t.code)
     );
     if (baseMatch) return baseMatch;
 
@@ -256,9 +424,9 @@ export default function SemesterGrid({ plan, transcript = [], selectedSemester }
   const getAssignedCourseForElective = (electiveName: string) => {
     // Find the elective in the plan to get its options
     let electiveOptions: string[] = [];
-    for (const semester of plan) {
+    for (const semester of selectedPlan) {
       for (const item of semester) {
-        if (item.type === 'elective' && item.name === electiveName) {
+        if (item.type === "elective" && item.name === electiveName) {
           electiveOptions = item.options || [];
           break;
         }
@@ -267,8 +435,8 @@ export default function SemesterGrid({ plan, transcript = [], selectedSemester }
     }
 
     // Get all taken courses that match this elective's options
-    const takenCoursesForThisElective = transcript.filter(item => 
-      electiveOptions.includes(item.code)
+    const takenCoursesForThisElective = filteredTranscript.filter(
+      (item: TranscriptItem) => electiveOptions.includes(item.code)
     );
 
     if (takenCoursesForThisElective.length === 0) {
@@ -277,14 +445,16 @@ export default function SemesterGrid({ plan, transcript = [], selectedSemester }
 
     // Create a global assignment map to ensure each course is only assigned once
     const globalAssignmentMap = new Map<string, string>(); // courseCode -> electiveName
-    
+
     // First pass: assign courses to electives that have only one option
-    for (const semester of plan) {
+    for (const semester of selectedPlan) {
       for (const item of semester) {
-        if (item.type === 'elective') {
+        if (item.type === "elective") {
           const otherElectiveOptions = item.options || [];
-          const takenForOtherElective = transcript.filter(t => otherElectiveOptions.includes(t.code));
-          
+          const takenForOtherElective = filteredTranscript.filter(
+            (t: TranscriptItem) => otherElectiveOptions.includes(t.code)
+          );
+
           // If this elective has exactly one taken course, assign it
           if (takenForOtherElective.length === 1) {
             const courseCode = takenForOtherElective[0].code;
@@ -295,18 +465,20 @@ export default function SemesterGrid({ plan, transcript = [], selectedSemester }
         }
       }
     }
-    
+
     // Second pass: for electives with multiple options, assign the first available course
-    for (const semester of plan) {
+    for (const semester of selectedPlan) {
       for (const item of semester) {
-        if (item.type === 'elective') {
+        if (item.type === "elective") {
           const otherElectiveOptions = item.options || [];
-          const takenForOtherElective = transcript.filter(t => otherElectiveOptions.includes(t.code));
-          
+          const takenForOtherElective = filteredTranscript.filter(
+            (t: TranscriptItem) => otherElectiveOptions.includes(t.code)
+          );
+
           // If this elective has multiple taken courses, find one that's not assigned
           if (takenForOtherElective.length > 1) {
-            const availableCourse = takenForOtherElective.find(course => 
-              !globalAssignmentMap.has(course.code)
+            const availableCourse = takenForOtherElective.find(
+              (course: TranscriptItem) => !globalAssignmentMap.has(course.code)
             );
             if (availableCourse) {
               globalAssignmentMap.set(availableCourse.code, item.name);
@@ -315,401 +487,289 @@ export default function SemesterGrid({ plan, transcript = [], selectedSemester }
         }
       }
     }
-    
+
     // Check if any course is assigned to this specific elective
     for (const [courseCode, assignedElectiveName] of globalAssignmentMap) {
       if (assignedElectiveName === electiveName) {
-        return transcript.find(t => t.code === courseCode) || null;
+        return (
+          filteredTranscript.find(
+            (t: TranscriptItem) => t.code === courseCode
+          ) || null
+        );
       }
     }
-    
+
     return null; // No course assigned to this elective
   };
 
-  // Get all course codes from the plan
-  const planCourseCodes = new Set<string>();
-  plan.forEach(semester => {
-    semester.forEach(item => {
-      if (item.type === 'course') {
-        planCourseCodes.add(item.code);
-      } else if (item.type === 'elective') {
-        // Add elective options to the set
-        item.options?.forEach(option => planCourseCodes.add(option));
+  const getItemColor = (item: SemesterItem) => {
+    if (item.type === "elective") {
+      // For electives, check if there's an assigned course and use its grade for coloring
+      const assignedCourse = getAssignedCourseForElective(item.name);
+      if (assignedCourse) {
+        const courseHistory = filteredTranscript.filter(
+          (t: TranscriptItem) => t.code === assignedCourse.code
+        );
+        if (courseHistory.length > 0) {
+          const effectiveGrade = getEffectiveGrade(assignedCourse.code);
+          if (effectiveGrade === "--") {
+            return "bg-blue-500"; // Currently taken
+          } else if (effectiveGrade === "?") {
+            return "bg-green-600"; // Passed (assumed)
+          } else if (
+            [
+              "AA",
+              "BA",
+              "BA+",
+              "BB",
+              "BB+",
+              "CB",
+              "CB+",
+              "CC",
+              "CC+",
+              "DC",
+              "DC+",
+              "DD",
+              "DD+",
+              "BL",
+            ].includes(effectiveGrade)
+          ) {
+            return "bg-green-600"; // Passed (including conditional pass)
+          } else if (["FD", "FF", "VF"].includes(effectiveGrade)) {
+            return "bg-red-400"; // Failed (more subtle)
+          }
+        }
       }
-    });
-  });
-
-  // Calculate progress metrics
-  const calculateProgressMetrics = () => {
-    console.log('=== DEBUG: calculateProgressMetrics ===');
-    console.log('Transcript:', transcript);
-    console.log('Plan:', plan);
-    
-    // Get transcript up to selected semester (same logic as in home page)
-    const getTranscriptUpToSelected = () => {
-      if (!selectedSemester) return transcript;
-      
-      // Get all unique semesters from transcript and sort them
-      const semesters = [...new Set(transcript.map(item => item.semester))];
-      const sortedSemesters = semesters.sort((a, b) => {
-        const getYear = (semester: string) => {
-          const yearMatch = semester.match(/(\d{4})/);
-          return yearMatch ? parseInt(yearMatch[1]) : 0;
-        };
-        
-        const getSemesterOrder = (semester: string) => {
-          if (semester.includes('Güz')) return 1;
-          if (semester.includes('Bahar')) return 2;
-          if (semester.includes('Yaz')) return 3;
-          return 0;
-        };
-        
-        const yearA = getYear(a);
-        const yearB = getYear(b);
-        
-        if (yearA !== yearB) return yearA - yearB;
-        
-        return getSemesterOrder(a) - getSemesterOrder(b);
-      });
-      
-      // Find the index of the selected semester
-      const selectedIndex = sortedSemesters.indexOf(selectedSemester);
-      if (selectedIndex === -1) return transcript;
-      
-      // Get semesters up to and including the selected semester
-      const semestersUpToSelected = sortedSemesters.slice(0, selectedIndex + 1);
-      
-      // Return all transcript items from semesters up to the selected semester
-      return transcript.filter(item => semestersUpToSelected.includes(item.semester));
-    };
-
-    const filteredTranscript = getTranscriptUpToSelected();
-    console.log('Filtered transcript (up to selected semester):', filteredTranscript);
-    
-    // Define passing grades
-    const passingGrades = ['AA', 'BA+', 'BA', 'BB+', 'BB', 'CB+', 'CB', 'CC+', 'CC', 'DC+', 'DC', 'DD+', 'DD', 'BL'];
-    
-    // Group courses by code and get only the last attempt for each course
-    const courseGroups = new Map<string, TranscriptItem[]>();
-    
-    filteredTranscript.forEach(course => {
-      if (!courseGroups.has(course.code)) {
-        courseGroups.set(course.code, []);
-      }
-      courseGroups.get(course.code)!.push(course);
-    });
-    
-    console.log('Course groups:', Array.from(courseGroups.entries()));
-    
-    // Get the last attempt for each course (most recent semester)
-    const lastAttempts: TranscriptItem[] = [];
-    courseGroups.forEach((attempts, courseCode) => {
-      // Sort attempts by semester to get the most recent
-      const sortedAttempts = attempts.sort((a, b) => {
-        const getYear = (semester: string) => {
-          const yearMatch = semester.match(/(\d{4})/);
-          return yearMatch ? parseInt(yearMatch[1]) : 0;
-        };
-        
-        const getSemesterOrder = (semester: string) => {
-          if (semester.includes('Güz')) return 1;
-          if (semester.includes('Bahar')) return 2;
-          if (semester.includes('Yaz')) return 3;
-          return 0;
-        };
-        
-        const yearA = getYear(a.semester);
-        const yearB = getYear(b.semester);
-        
-        if (yearA !== yearB) return yearB - yearA; // Most recent first
-        return getSemesterOrder(b.semester) - getSemesterOrder(a.semester);
-      });
-      
-      // Take the first (most recent) attempt
-      const lastAttempt = sortedAttempts[0];
-      if (lastAttempt.grade && lastAttempt.grade !== '--') {
-        lastAttempts.push(lastAttempt);
-      }
-    });
-
-    console.log('Last attempts:', lastAttempts);
-
-    // Filter for passed courses only
-    const passedCourses = lastAttempts.filter(course => 
-      passingGrades.includes(course.grade)
-    );
-
-    console.log('Passed courses:', passedCourses);
-    console.log('Passed courses count:', passedCourses.length);
-
-    // Calculate total credits from passed courses
-    let totalCredits = passedCourses.reduce((sum, course) => {
-      return sum + parseFloat(course.credits || '0');
-    }, 0);
-
-    console.log('Total credits from passed courses:', totalCredits);
-
-    // Calculate GPA
-    const gradePoints = {
-      'AA': 4.0, 'BA+': 3.75, 'BA': 3.5, 'BB+': 3.25, 'BB': 3.0, 
-      'CB+': 2.75, 'CB': 2.5, 'CC+': 2.25, 'CC': 2.0, 
-      'DC+': 1.75, 'DC': 1.5, 'DD+': 1.25, 'DD': 1.0, 
-      'FD': 0.5, 'FF': 0.0, 'VF': 0.0, 'BL': 0.0
-    };
-
-    let totalGradePoints = 0;
-    let totalGradedCredits = 0;
-
-    passedCourses.forEach(course => {
-      const grade = course.grade;
-      const credits = parseFloat(course.credits || '0');
-      
-      if (gradePoints[grade as keyof typeof gradePoints] !== undefined) {
-        totalGradePoints += gradePoints[grade as keyof typeof gradePoints] * credits;
-        totalGradedCredits += credits;
-      }
-    });
-
-    const gpa = totalGradedCredits > 0 ? totalGradePoints / totalGradedCredits : 0;
-
-    // Determine class standing based on credits
-    let classStanding = '';
-    if (totalCredits < 30) {
-      classStanding = '1.sınıf';
-    } else if (totalCredits < 60) {
-      classStanding = '2.sınıf';
-    } else if (totalCredits < 95) {
-      classStanding = '3.sınıf';
-    } else {
-      classStanding = '4.sınıf';
+      return "bg-purple-500"; // Default for electives with no assigned course
     }
 
-    const result = {
-      totalCredits: Math.round(totalCredits * 10) / 10, // Round to 1 decimal place
-      gpa: Math.round(gpa * 100) / 100, // Round to 2 decimal places
-      classStanding,
-      completedCourses: passedCourses.length
-    };
-    
-    console.log('Final result:', result);
-    return result;
+    // For courses, check if they have been taken and their grade
+    const courseHistory = filteredTranscript.filter(
+      (t: TranscriptItem) => t.code === item.code
+    );
+    if (courseHistory.length > 0) {
+      const effectiveGrade = getEffectiveGrade(item.code);
+      if (effectiveGrade === "--") {
+        return "bg-blue-500"; // Currently taken
+      } else if (effectiveGrade === "?") {
+        return "bg-green-600"; // Passed (assumed)
+      } else if (
+        [
+          "AA",
+          "BA",
+          "BA+",
+          "BB",
+          "BB+",
+          "CB",
+          "CB+",
+          "CC",
+          "CC+",
+          "DC",
+          "DC+",
+          "DD",
+          "DD+",
+          "BL",
+        ].includes(effectiveGrade)
+      ) {
+        return "bg-green-600"; // Passed (including conditional pass)
+      } else if (["FD", "FF", "VF"].includes(effectiveGrade)) {
+        return "bg-red-400"; // Failed (more subtle)
+      }
+    }
+
+    return "bg-purple-500"; // Default for not taken
   };
 
-  const progressMetrics = calculateProgressMetrics();
-
   return (
-    <div className="w-full max-w-7xl mx-auto p-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-6">
-        {plan.map((semester, semesterIndex) => (
-          <div key={semesterIndex} className="space-y-3">
-            <h2 className="text-lg font-semibold text-center text-gray-700 bg-gray-100 py-2 rounded-lg shadow-sm">
-              Semester {semesterIndex + 1}
-            </h2>
-            
-            <div className="space-y-2">
-              {semester.map((item, itemIndex) => (
-                <div key={itemIndex}>
-                  {item.type === 'course' ? (
-                    (() => {
-                      // First check if the exact course code exists in transcript
-                      const exactMatch = transcript.find(t => t.code === item.code);
-                      
-                      // If no exact match, try to find by course mappings and E suffix
-                      const mappedMatch = !exactMatch ? findCourseByMapping(item.code, planCourseCodes) : null;
-                      
-                      // Determine which course to display
-                      const displayCourse = exactMatch || mappedMatch;
-                      const isMappedMatch = !exactMatch && mappedMatch;
-                      
-                                             return (
-                                                  <div 
-                           className={`${displayCourse ? getItemColor({ type: 'course', code: displayCourse.code }) : getItemColor(item)} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 relative`}
-                           onClick={() => handleCourseClick(item.code, false, displayCourse?.code, Boolean(isMappedMatch))}
-                         >
-                           <div className="text-sm font-medium text-center">
-                             {formatCourseCode(item.code)}
-                           </div>
-                          {isMappedMatch && (
-                            <div className="absolute -top-1 -left-1 bg-orange-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                              ⚠️
-                            </div>
-                          )}
-                          {(() => {
-                            if (displayCourse) {
-                              const courseHistory = transcript.filter(t => t.code === displayCourse.code);
-                              if (courseHistory.length > 0) {
-                                const latestGrade = courseHistory[courseHistory.length - 1].grade;
+    <div className="w-full max-w-7xl mx-auto ">
+      <div className="flex overflow-x-auto xl:overflow-x-visible gap-4 xl:gap-6 pb-4 xl:pb-0">
+        <div className="flex xl:grid xl:grid-cols-8 gap-4 xl:gap-6 min-w-max xl:min-w-0 xl:w-full">
+          {Array.isArray(selectedPlan) &&
+            selectedPlan.map(
+              (semester: SemesterItem[], semesterIndex: number) => (
+                <div
+                  key={semesterIndex}
+                  className="space-y-3 w-32 xl:w-auto flex-shrink-0"
+                >
+                  <h2 className="text-lg font-semibold text-center text-gray-700 bg-gray-100 py-2 rounded-lg shadow-sm">
+                    Semester {semesterIndex + 1}
+                  </h2>
+
+                  <div className="space-y-2">
+                    {Array.isArray(semester) &&
+                      semester.map((item: SemesterItem, itemIndex: number) => (
+                        <div key={itemIndex}>
+                          {item.type === "course"
+                            ? (() => {
+                                // First check if the exact course code exists in filtered transcript
+                                const exactMatch = filteredTranscript.find(
+                                  (t: TranscriptItem) => t.code === item.code
+                                );
+
+                                // If no exact match, try to find by course mappings and E suffix
+                                const mappedMatch = !exactMatch
+                                  ? findCourseByMapping(
+                                      item.code,
+                                      planCourseCodes
+                                    )
+                                  : null;
+
+                                // Determine which course to display
+                                const displayCourse = exactMatch || mappedMatch;
+                                const isMappedMatch =
+                                  !exactMatch && mappedMatch;
+
                                 return (
-                                  <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                    {latestGrade}
+                                  <div
+                                    className={`${
+                                      displayCourse
+                                        ? getItemColor({
+                                            type: "course",
+                                            code: displayCourse.code,
+                                          })
+                                        : getItemColor(item)
+                                    } text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 relative`}
+                                    onClick={() =>
+                                      onCourseClick(
+                                        item.code,
+                                        false,
+                                        displayCourse?.code,
+                                        Boolean(isMappedMatch)
+                                      )
+                                    }
+                                  >
+                                    <div className="text-sm font-medium text-center">
+                                      {formatCourseCode(item.code)}
+                                    </div>
+                                    {isMappedMatch && (
+                                      <div className="absolute -top-1 -left-1 bg-orange-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                        ⚠️
+                                      </div>
+                                    )}
+                                    {(() => {
+                                      if (displayCourse) {
+                                        const effectiveGrade =
+                                          getEffectiveGrade(displayCourse.code);
+                                        if (effectiveGrade) {
+                                          return (
+                                            <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                              {effectiveGrade}
+                                            </div>
+                                          );
+                                        }
+                                      }
+
+                                      if (
+                                        hasUnsatisfiedPrerequisites(item.code)
+                                      ) {
+                                        return (
+                                          <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                            🔒
+                                          </div>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
                                   </div>
                                 );
-                              }
-                            }
-                            
-                            if (hasUnsatisfiedPrerequisites(item.code)) {
-                              return (
-                                <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                  🔒
-                                </div>
-                              );
-                            }
-                            return null;
-                          })()}
+                              })()
+                            : (() => {
+                                const assignedCourse =
+                                  getAssignedCourseForElective(item.name);
+                                if (assignedCourse) {
+                                  // Show the assigned course with elective category
+                                  const courseHistory =
+                                    filteredTranscript.filter(
+                                      (t: TranscriptItem) =>
+                                        t.code === assignedCourse.code
+                                    );
+                                  const latestGrade =
+                                    courseHistory.length > 0
+                                      ? courseHistory[courseHistory.length - 1]
+                                          .grade
+                                      : "";
+
+                                  return (
+                                    <div
+                                      className={`${getItemColor({
+                                        type: "course",
+                                        code: assignedCourse.code,
+                                      })} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 relative`}
+                                      onClick={() =>
+                                        onCourseClick(
+                                          assignedCourse.code,
+                                          false,
+                                          undefined,
+                                          false
+                                        )
+                                      }
+                                    >
+                                      <div className="text-xs font-medium text-center">
+                                        {formatCourseCode(assignedCourse.code)}
+                                      </div>
+                                      <div className="text-xs text-center mt-1 opacity-75">
+                                        ({item.category})
+                                      </div>
+                                      {(() => {
+                                        const effectiveGrade =
+                                          getEffectiveGrade(
+                                            assignedCourse.code
+                                          );
+                                        if (effectiveGrade) {
+                                          return (
+                                            <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                              {effectiveGrade}
+                                            </div>
+                                          );
+                                        } else if (
+                                          hasUnsatisfiedPrerequisites(
+                                            assignedCourse.code
+                                          )
+                                        ) {
+                                          return (
+                                            <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
+                                              🔒
+                                            </div>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
+                                    </div>
+                                  );
+                                } else {
+                                  // Show elective name if no course is assigned
+                                  return (
+                                    <div
+                                      className={`${getItemColor(
+                                        item
+                                      )} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105`}
+                                      onClick={() =>
+                                        onCourseClick(
+                                          item.name,
+                                          true,
+                                          undefined,
+                                          false
+                                        )
+                                      }
+                                    >
+                                      <div className="text-xs font-medium text-center">
+                                        {item.name}
+                                      </div>
+                                      <div className="text-xs text-center mt-1 opacity-75">
+                                        ({item.category})
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                              })()}
                         </div>
-                      );
-                    })()
-                                     ) : (
-                     (() => {
-                       const assignedCourse = getAssignedCourseForElective(item.name);
-                       if (assignedCourse) {
-                         // Show the assigned course with elective category
-                         const courseHistory = transcript.filter(t => t.code === assignedCourse.code);
-                         const latestGrade = courseHistory.length > 0 ? courseHistory[courseHistory.length - 1].grade : '';
-                         
-                         return (
-                           <div 
-                             className={`${getItemColor({ type: 'course', code: assignedCourse.code })} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 relative`}
-                             onClick={() => handleCourseClick(assignedCourse.code, false, undefined, false)}
-                           >
-                             <div className="text-xs font-medium text-center">
-                               {formatCourseCode(assignedCourse.code)}
-                             </div>
-                             <div className="text-xs text-center mt-1 opacity-75">
-                               ({item.category})
-                             </div>
-                             {latestGrade ? (
-                               <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                 {latestGrade}
-                               </div>
-                             ) : hasUnsatisfiedPrerequisites(assignedCourse.code) ? (
-                               <div className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                                 🔒
-                               </div>
-                             ) : null}
-                           </div>
-                         );
-                                               } else {
-                          // Show elective name if no course is assigned
-                          return (
-                            <div 
-                              className={`${getItemColor(item)} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105`}
-                              onClick={() => handleCourseClick(item.name, true, undefined, false)}
-                            >
-                              <div className="text-xs font-medium text-center">
-                                {item.name}
-                              </div>
-                              <div className="text-xs text-center mt-1 opacity-75">
-                                ({item.category})
-                              </div>
-                            </div>
-                          );
-                        }
-                     })()
-                   )}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Extra Courses Section - Courses in transcript but not in plan */}
-      {(() => {
-        // Find courses in transcript that are not in the plan
-        const extraCourses = transcript.filter(t => {
-          // Check if course is directly in plan
-          if (planCourseCodes.has(t.code)) return false;
-          
-          // Check if course number matches any course in plan
-          const courseNumber = t.code.replace(/[A-Z]/g, '');
-          const hasNumberMatch = Array.from(planCourseCodes).some(planCode => {
-            const planNumber = planCode.replace(/[A-Z]/g, '');
-            return planNumber === courseNumber;
-          });
-          
-          return !hasNumberMatch;
-        });
-        
-        if (extraCourses.length === 0) return null;
-
-        return (
-          <div className="mt-8 p-6 bg-orange-50 rounded-lg shadow-sm border border-orange-200">
-            <h3 className="text-lg font-semibold mb-4 text-orange-800">Extra Courses (Not in Plan)</h3>
-            <p className="text-sm text-orange-700 mb-4">
-              These courses are in your transcript but not included in your current plan:
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {extraCourses.map((course, index) => {
-                const courseHistory = transcript.filter(t => t.code === course.code);
-                const latestGrade = courseHistory.length > 0 ? courseHistory[courseHistory.length - 1].grade : '';
-                
-                return (
-                  <div 
-                    key={index}
-                    className={`${getItemColor({ type: 'course', code: course.code })} text-white p-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 relative`}
-                    onClick={() => handleCourseClick(course.code, false, undefined, false)}
-                  >
-                    <div className="text-sm font-medium text-center">
-                      {formatCourseCode(course.code)}
-                    </div>
-                    <div className="text-xs text-center mt-1 opacity-75">
-                      {course.name}
-                    </div>
-                    {latestGrade && (
-                      <div className="absolute -top-1 -right-1 bg-white text-gray-800 text-xs font-bold px-1 rounded-full min-w-[20px] text-center">
-                        {latestGrade}
-                      </div>
-                    )}
+                      ))}
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
-
-      <div className="mt-8 p-6 bg-gray-50 rounded-lg shadow-sm">
-        <h3 className="text-lg font-semibold mb-4 text-gray-700">Legend</h3>
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-          <div className="flex items-center space-x-3">
-            <div className="w-5 h-5 bg-purple-500 rounded shadow-sm"></div>
-            <span className="text-sm text-gray-600">Not Taken</span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-5 h-5 bg-blue-500 rounded shadow-sm"></div>
-            <span className="text-sm text-gray-600">Currently Taken</span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-5 h-5 bg-green-600 rounded shadow-sm"></div>
-            <span className="text-sm text-gray-600">Passed</span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-5 h-5 bg-red-400 rounded shadow-sm"></div>
-            <span className="text-sm text-gray-600">Failed</span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-5 h-5 bg-yellow-500 rounded shadow-sm flex items-center justify-center text-xs">🔒</div>
-            <span className="text-sm text-gray-600">Prerequisites Not Met</span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-5 h-5 bg-orange-500 rounded shadow-sm flex items-center justify-center text-xs">⚠️</div>
-            <span className="text-sm text-gray-600">Different Course</span>
-          </div>
+                </div>
+              )
+            )}
         </div>
       </div>
-
-      {/* Course Popup */}
-      <CoursePopup
-        isOpen={popupOpen}
-        onClose={() => setPopupOpen(false)}
-        courseCode={selectedCourse}
-        courseName={getCourseNameFromTranscript(selectedCourse)}
-        transcript={transcript}
-        isElective={isSelectedElective}
-        plan={plan}
-        hasWarningIcon={hasWarningIcon}
-      />
     </div>
   );
-} 
+}

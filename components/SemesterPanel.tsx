@@ -505,7 +505,7 @@ export default function SemesterPanel({
       </div>
       
       {/* User Profile at Bottom */}
-      <div className="mt-auto pt-4 border-t border-gray-200">
+      <div className="border-t border-gray-200">
         <div className="p-4">
           <div className="relative user-menu-container">
             {/* Clickable User Info */}
