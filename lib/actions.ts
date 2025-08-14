@@ -1,6 +1,6 @@
-'use server';
+"use server";
 
-import Client, { Environment } from '@/lib/client';
+import Client, { Environment } from "@/lib/client";
 
 export interface SelectedLesson {
   courseCode: string;
@@ -22,6 +22,7 @@ export interface TranscriptCourse {
   credits: string;
   grade: string;
   selectedLessons?: SelectedLesson[];
+  lesson_id?: string;
 }
 
 export interface ParseTranscriptResult {
@@ -57,29 +58,31 @@ export interface DeleteTranscriptResult {
 /**
  * Server action to parse transcript from base64 PDF data
  */
-export async function parseTranscriptFromBase64(base64Data: string): Promise<ParseTranscriptResult> {
+export async function parseTranscriptFromBase64(
+  base64Data: string
+): Promise<ParseTranscriptResult> {
   try {
-    console.log('Server: Starting transcript parsing...');
-    console.log('Server: Base64 data length:', base64Data.length);
-    
+    console.log("Server: Starting transcript parsing...");
+    console.log("Server: Base64 data length:", base64Data.length);
+
     // Create API client for staging environment
-    const client = new Client(Environment('staging'));
-    
+    const client = new Client(Environment("staging"));
+
     // Prepare request payload
     const request = {
-      pdf_base64: base64Data
+      pdf_base64: base64Data,
     };
-    
-    console.log('Server: Sending request to API...');
-    
+
+    console.log("Server: Sending request to API...");
+
     // Call the API
     const response = await client.transcript.ParseTranscript(request);
-    
-    console.log('Server: API Response received:');
-    console.log('Server: Courses found:', response.courses.length);
-    console.log('Server: Error:', response.error);
-    console.log('Server: Debug:', response.debug);
-    
+
+    console.log("Server: API Response received:");
+    console.log("Server: Courses found:", response.courses.length);
+    console.log("Server: Error:", response.error);
+    console.log("Server: Debug:", response.debug);
+
     // Log each course
     response.courses.forEach((course, index) => {
       console.log(`Server: Course ${index + 1}:`, {
@@ -87,19 +90,18 @@ export async function parseTranscriptFromBase64(base64Data: string): Promise<Par
         code: course.code,
         name: course.name,
         credits: course.credits,
-        grade: course.grade
+        grade: course.grade,
       });
     });
-    
+
     return response;
-    
   } catch (error) {
-    console.error('Server: Error parsing transcript:', error);
-    
+    console.error("Server: Error parsing transcript:", error);
+
     return {
       courses: [],
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      debug: 'Error occurred during API call'
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      debug: "Error occurred during API call",
     };
   }
 }
@@ -107,27 +109,28 @@ export async function parseTranscriptFromBase64(base64Data: string): Promise<Par
 /**
  * Server action to get user's transcript
  */
-export async function GetTranscript(userId: string): Promise<GetTranscriptResult> {
+export async function GetTranscript(
+  userId: string
+): Promise<GetTranscriptResult> {
   try {
     // Create API client for staging environment
-    const client = new Client(Environment('staging'));
-    
+    const client = new Client(Environment("staging"));
+
     // Call the API to get user's transcript
     const response = await client.transcript.GetTranscript(userId);
-    
+
     return {
       courses: response.transcript?.courses || [],
-      error: '',
-      success: !!response.transcript
+      error: "",
+      success: !!response.transcript,
     };
-    
   } catch (error) {
-    console.error('Server: Error getting transcript:', error);
-    
+    console.error("Server: Error getting transcript:", error);
+
     return {
       courses: [],
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      success: false
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      success: false,
     };
   }
 }
@@ -135,33 +138,35 @@ export async function GetTranscript(userId: string): Promise<GetTranscriptResult
 /**
  * Server action to store user's transcript
  */
-export async function StoreTranscript(userId: string, courses: TranscriptCourse[]): Promise<StoreTranscriptResult> {
+export async function StoreTranscript(
+  userId: string,
+  courses: TranscriptCourse[]
+): Promise<StoreTranscriptResult> {
   try {
     // Create API client for staging environment
-    const client = new Client(Environment('staging'));
-    
+    const client = new Client(Environment("staging"));
+
     // Prepare request payload
     const request = {
       userId: userId,
-      courses: courses
+      courses: courses,
     };
-    
+
     // Call the API to store user's transcript
     const response = await client.transcript.StoreTranscript(request);
-    
+
     return {
       success: true,
-      error: '',
-      message: response.message
+      error: "",
+      message: response.message,
     };
-    
   } catch (error) {
-    console.error('Server: Error storing transcript:', error);
-    
+    console.error("Server: Error storing transcript:", error);
+
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      message: ''
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      message: "",
     };
   }
 }
@@ -169,41 +174,55 @@ export async function StoreTranscript(userId: string, courses: TranscriptCourse[
 /**
  * Server action to update user's transcript
  */
-export async function UpdateTranscript(userId: string, courses: TranscriptCourse[]): Promise<UpdateTranscriptResult> {
+export async function UpdateTranscript(
+  userId: string,
+  courses: TranscriptCourse[]
+): Promise<UpdateTranscriptResult> {
   try {
-    console.log('Server: Updating transcript for user:', userId);
-    console.log('Server: Courses to update:', courses.length);
-    
+    console.log("Server: Updating transcript for user:", userId);
+    console.log("Server: Courses to update:", courses.length);
+
+    // Log the first few courses to see their structure
+    courses.slice(0, 3).forEach((course, index) => {
+      console.log(`Server: Course ${index + 1}:`, {
+        semester: course.semester,
+        code: course.code,
+        name: course.name,
+        credits: course.credits,
+        grade: course.grade,
+        lesson_id: course.lesson_id,
+      });
+    });
+
     // Create API client for staging environment
-    const client = new Client(Environment('staging'));
-    
+    const client = new Client(Environment("staging"));
+
     // Prepare request payload
     const request = {
-      courses: courses
+      courses: courses,
     };
-    
-    console.log('Server: Sending request to update transcript...');
-    
+
+    console.log("Server: Sending request to update transcript...");
+
     // Call the API to update user's transcript
     const response = await client.transcript.UpdateTranscript(userId, request);
-    
-    console.log('Server: UpdateTranscript API Response received:');
-    console.log('Server: Message:', response.message);
-    console.log('Server: User ID:', response.userId);
-    
+
+    console.log("Server: UpdateTranscript API Response received:");
+    console.log("Server: Message:", response.message);
+    console.log("Server: User ID:", response.userId);
+
     return {
       success: true,
-      error: '',
-      message: response.message
+      error: "",
+      message: response.message,
     };
-    
   } catch (error) {
-    console.error('Server: Error updating transcript:', error);
-    
+    console.error("Server: Error updating transcript:", error);
+
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      message: 'Failed to update transcript'
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      message: "Failed to update transcript",
     };
   }
 }
@@ -211,29 +230,30 @@ export async function UpdateTranscript(userId: string, courses: TranscriptCourse
 /**
  * Server action to delete user's transcript
  */
-export async function DeleteTranscript(userId: string): Promise<DeleteTranscriptResult> {
+export async function DeleteTranscript(
+  userId: string
+): Promise<DeleteTranscriptResult> {
   try {
-    console.log('Server: Deleting transcript for user:', userId);
-    const client = new Client(Environment('staging'));
-    console.log('Server: Sending request to delete transcript...');
+    console.log("Server: Deleting transcript for user:", userId);
+    const client = new Client(Environment("staging"));
+    console.log("Server: Sending request to delete transcript...");
     const response = await client.transcript.DeleteTranscript(userId);
-    
-    console.log('Server: DeleteTranscript API Response received:');
-    console.log('Server: Message:', response.message);
-    console.log('Server: User ID:', response.userId);
-    
+
+    console.log("Server: DeleteTranscript API Response received:");
+    console.log("Server: Message:", response.message);
+    console.log("Server: User ID:", response.userId);
+
     return {
       success: true,
-      error: '',
-      message: response.message
+      error: "",
+      message: response.message,
     };
-    
   } catch (error) {
-    console.error('Server: Error deleting transcript:', error);
+    console.error("Server: Error deleting transcript:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      message: ''
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      message: "",
     };
   }
 }
@@ -270,41 +290,40 @@ export interface DeletePlanResult {
  */
 export async function GetPlan(userId: string): Promise<GetPlanResult> {
   try {
-    console.log('Server: Getting plan for user:', userId);
-    
+    console.log("Server: Getting plan for user:", userId);
+
     // Create API client for staging environment
-    const client = new Client(Environment('staging'));
-    
-    console.log('Server: Sending request to get plan...');
-    
+    const client = new Client(Environment("staging"));
+
+    console.log("Server: Sending request to get plan...");
+
     // Call the API to get user's plan
     const response = await client.plan.GetPlan({ userId });
-    
-    console.log('Server: GetPlan API Response received:');
-    console.log('Server: Plan found:', response.plan ? 'Yes' : 'No');
-    console.log('Server: Error:', response.error);
-    
+
+    console.log("Server: GetPlan API Response received:");
+    console.log("Server: Plan found:", response.plan ? "Yes" : "No");
+    console.log("Server: Error:", response.error);
+
     if (response.error) {
       return {
         plan: null,
         error: response.error,
-        success: false
+        success: false,
       };
     }
-    
+
     return {
       plan: response.plan?.planJson || null,
-      error: '',
-      success: !!response.plan
+      error: "",
+      success: !!response.plan,
     };
-    
   } catch (error) {
-    console.error('Server: Error getting plan:', error);
-    
+    console.error("Server: Error getting plan:", error);
+
     return {
       plan: null,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      success: false
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      success: false,
     };
   }
 }
@@ -312,53 +331,57 @@ export async function GetPlan(userId: string): Promise<GetPlanResult> {
 /**
  * Server action to store user's plan
  */
-export async function StorePlan(userId: string, planJson: PlanCourse[][]): Promise<StorePlanResult> {
+export async function StorePlan(
+  userId: string,
+  planJson: PlanCourse[][]
+): Promise<StorePlanResult> {
   try {
-    console.log('Server: Storing plan for user:', userId);
-    console.log('Server: Plan semesters:', planJson.length);
-    
+    console.log("Server: Storing plan for user:", userId);
+    console.log("Server: Plan semesters:", planJson.length);
+
     // Create API client for staging environment
-    const client = new Client(Environment('staging'));
-    
+    const client = new Client(Environment("staging"));
+
     // Transform PlanCourse[][] to the expected Course[][] format
-    const transformedPlan = planJson.map(semester =>
-      semester.map(item => ({
+    const transformedPlan = planJson.map((semester) =>
+      semester.map((item) => ({
         type: item.type,
         code: item.code,
-        name: item.name || '',           // Provide default empty string
-        category: item.category || '',   // Provide default empty string
-        options: item.options || []      // Provide default empty array
+        name: item.name || "", // Provide default empty string
+        category: item.category || "", // Provide default empty string
+        options: item.options || [], // Provide default empty array
       }))
     );
-    
+
     // Prepare request payload
     const request = {
       userId: userId,
-      planJson: transformedPlan
+      planJson: transformedPlan,
     };
-    
-    console.log('Server: Sending request to store plan...');
-    
+
+    console.log("Server: Sending request to store plan...");
+
     // Call the API to store user's plan
     const response = await client.plan.StorePlan(request);
-    
-    console.log('Server: StorePlan API Response received:');
-    console.log('Server: Success:', response.success);
-    console.log('Server: Error:', response.error);
-    
+
+    console.log("Server: StorePlan API Response received:");
+    console.log("Server: Success:", response.success);
+    console.log("Server: Error:", response.error);
+
     return {
       success: response.success,
-      error: response.error || '',
-      message: response.success ? 'Plan stored successfully' : 'Failed to store plan'
+      error: response.error || "",
+      message: response.success
+        ? "Plan stored successfully"
+        : "Failed to store plan",
     };
-    
   } catch (error) {
-    console.error('Server: Error storing plan:', error);
-    
+    console.error("Server: Error storing plan:", error);
+
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      message: 'Failed to store plan'
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      message: "Failed to store plan",
     };
   }
 }
@@ -368,27 +391,28 @@ export async function StorePlan(userId: string, planJson: PlanCourse[][]): Promi
  */
 export async function DeletePlan(userId: string): Promise<DeletePlanResult> {
   try {
-    console.log('Server: Deleting plan for user:', userId);
-    const client = new Client(Environment('staging'));
-    console.log('Server: Sending request to delete plan...');
+    console.log("Server: Deleting plan for user:", userId);
+    const client = new Client(Environment("staging"));
+    console.log("Server: Sending request to delete plan...");
     const response = await client.plan.DeletePlan({ userId });
-    
-    console.log('Server: DeletePlan API Response received:');
-    console.log('Server: Success:', response.success);
-    console.log('Server: Error:', response.error);
-    
+
+    console.log("Server: DeletePlan API Response received:");
+    console.log("Server: Success:", response.success);
+    console.log("Server: Error:", response.error);
+
     return {
       success: response.success,
-      error: response.error || '',
-      message: response.success ? 'Plan deleted successfully' : 'Failed to delete plan'
+      error: response.error || "",
+      message: response.success
+        ? "Plan deleted successfully"
+        : "Failed to delete plan",
     };
-    
   } catch (error) {
-    console.error('Server: Error deleting plan:', error);
+    console.error("Server: Error deleting plan:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      message: 'Failed to delete plan'
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      message: "Failed to delete plan",
     };
   }
 }
@@ -396,43 +420,48 @@ export async function DeletePlan(userId: string): Promise<DeletePlanResult> {
 /**
  * Server action to parse and store transcript in one operation
  */
-export async function ParseAndStoreTranscript(userId: string, base64Data: string): Promise<StoreTranscriptResult> {
+export async function ParseAndStoreTranscript(
+  userId: string,
+  base64Data: string
+): Promise<StoreTranscriptResult> {
   try {
-    console.log('Server: Starting parse and store transcript for user:', userId);
-    
+    console.log(
+      "Server: Starting parse and store transcript for user:",
+      userId
+    );
+
     // First parse the transcript
     const parseResult = await parseTranscriptFromBase64(base64Data);
-    
+
     if (parseResult.error) {
-      console.error('Server: Error parsing transcript:', parseResult.error);
+      console.error("Server: Error parsing transcript:", parseResult.error);
       return {
         success: false,
         error: parseResult.error,
-        message: 'Failed to parse transcript'
+        message: "Failed to parse transcript",
       };
     }
-    
+
     if (parseResult.courses.length === 0) {
-      console.log('Server: No courses found in transcript');
+      console.log("Server: No courses found in transcript");
       return {
         success: false,
-        error: 'No courses found in transcript',
-        message: 'Please check if the file contains valid transcript data'
+        error: "No courses found in transcript",
+        message: "Please check if the file contains valid transcript data",
       };
     }
-    
+
     // Then store the transcript
     const storeResult = await StoreTranscript(userId, parseResult.courses);
-    
-    console.log('Server: Parse and store completed successfully');
+
+    console.log("Server: Parse and store completed successfully");
     return storeResult;
-    
   } catch (error) {
-    console.error('Server: Error in parse and store transcript:', error);
+    console.error("Server: Error in parse and store transcript:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      message: 'Failed to process transcript'
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      message: "Failed to process transcript",
     };
   }
-} 
+}

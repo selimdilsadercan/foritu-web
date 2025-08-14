@@ -51,7 +51,7 @@ interface TranscriptItem {
   name: string;
   credits: string;
   grade: string;
-  selectedLessons?: SelectedLesson[];
+  lesson_id?: string;
 }
 
 interface PrerequisiteCourse {
@@ -117,7 +117,6 @@ export default function Home() {
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>("semesters");
   const [selectedLessons, setSelectedLessons] = useState<SelectedLesson[]>([]);
-  const [lessonsData, setLessonsData] = useState<Lesson[]>([]);
 
   // Load courses data from JSON file and get user's data in correct order
   useEffect(() => {
@@ -257,59 +256,6 @@ export default function Home() {
     }
   }, [selectedPlan.length, isLoading, isPlanLoading, planLoaded]);
 
-  // Load sample lessons data for demonstration
-  useEffect(() => {
-    // Sample lessons data - in a real app, this would come from an API
-    const sampleLessons: Lesson[] = [
-      {
-        lesson_id: "BLG242E-01",
-        course_code: "BLG242E",
-        delivery_mode: "Face to Face",
-        instructor: "Dr. John Doe",
-        capacity: "50",
-        enrolled: "45",
-        sessions: [
-          {
-            location: "Main Campus",
-            day: "Monday",
-            time: "09:30-10:20",
-            room: "A101",
-          },
-          {
-            location: "Main Campus",
-            day: "Wednesday",
-            time: "09:30-10:20",
-            room: "A101",
-          },
-        ],
-      },
-      {
-        lesson_id: "EHB211E-01",
-        course_code: "EHB211E",
-        delivery_mode: "Face to Face",
-        instructor: "Dr. Jane Smith",
-        capacity: "40",
-        enrolled: "38",
-        sessions: [
-          {
-            location: "Main Campus",
-            day: "Tuesday",
-            time: "14:30-15:20",
-            room: "B205",
-          },
-          {
-            location: "Main Campus",
-            day: "Thursday",
-            time: "14:30-15:20",
-            room: "B205",
-          },
-        ],
-      },
-    ];
-
-    setLessonsData(sampleLessons);
-  }, []);
-
   // Function to add a single course to transcript as a new attempt
   const addCourseToTranscript = (courseCode?: string) => {
     if (!courseCode) {
@@ -397,18 +343,21 @@ export default function Home() {
   const updateSelectedLessons = (
     courseCode: string,
     semester: string,
-    selectedLessons: any[]
+    lessonId: string | undefined
   ) => {
     setTranscript((prev) => {
       const updated = prev.map((attempt) =>
         attempt.code === courseCode && attempt.semester === semester
-          ? { ...attempt, selectedLessons }
+          ? {
+              ...attempt,
+              lesson_id: lessonId,
+            }
           : attempt
       );
-      console.log("Updated selected lessons:", {
+      console.log("Updated lesson_id:", {
         courseCode,
         semester,
-        selectedLessons,
+        lesson_id: lessonId,
       });
       console.log("Updated transcript:", updated);
       return updated;
@@ -427,11 +376,18 @@ export default function Home() {
     );
   };
 
+  // Helper function to handle lesson clicks
+  const handleLessonClick = (lesson: any) => {
+    console.log("Lesson clicked:", lesson);
+    // Here you can add logic to show the course popup
+    // For example, you could set the selected course and open the popup
+    setSelectedCourse(lesson.course_code);
+    setPopupOpen(true);
+  };
+
   const handleSemesterSelect = (semesterName: string) => {
     setSelectedSemester(semesterName);
   };
-
-  // Note: No longer saving to localStorage - transcript is managed via API
 
   // Handle transcript upload
   const handleTranscriptUpload = async (file: File) => {
@@ -754,19 +710,12 @@ export default function Home() {
 
   // Check if there are unsaved changes by comparing current transcript with last saved
   const hasUnsavedChanges = () => {
-    console.log("Checking for unsaved changes...");
-    console.log("Current transcript length:", transcript.length);
-    console.log("Last saved transcript length:", lastSavedTranscript.length);
-
     if (lastSavedTranscript.length === 0) {
-      // If no last saved transcript, consider current state as "saved"
-      console.log("No last saved transcript, returning false");
       return false;
     }
 
     // Deep comparison of transcripts
     if (transcript.length !== lastSavedTranscript.length) {
-      console.log("Transcript lengths differ, returning true");
       return true;
     }
 
@@ -780,14 +729,13 @@ export default function Home() {
         current.code !== saved.code ||
         current.name !== saved.name ||
         current.credits !== saved.credits ||
-        current.grade !== saved.grade
+        current.grade !== saved.grade ||
+        current.lesson_id !== saved.lesson_id
       ) {
-        console.log("Found difference at index", i, "returning true");
         return true;
       }
     }
 
-    console.log("No differences found, returning false");
     return false;
   };
 
@@ -798,6 +746,17 @@ export default function Home() {
     setIsSaving(true);
     try {
       console.log("Saving transcript changes...");
+      console.log(
+        "Transcript data being sent:",
+        transcript.map((t) => ({
+          semester: t.semester,
+          code: t.code,
+          name: t.name,
+          credits: t.credits,
+          grade: t.grade,
+          lesson_id: t.lesson_id,
+        }))
+      );
 
       // Call the UpdateTranscript action
       const { UpdateTranscript } = await import("@/lib/actions");
@@ -807,6 +766,8 @@ export default function Home() {
         // Update the last saved transcript to current state
         setLastSavedTranscript([...transcript]);
         console.log("Transcript changes saved successfully:", result.message);
+
+        // Calendar will automatically refresh when props change
       } else {
         console.error("Failed to save transcript changes:", result.error);
         alert(`Failed to save changes: ${result.error}`);
@@ -830,19 +791,6 @@ export default function Home() {
       setTranscript([...lastSavedTranscript]);
       console.log("Changes canceled, transcript reverted");
     }
-  };
-
-  // Test function to simulate changes (temporary for debugging)
-  const testAddChange = () => {
-    const testCourse: TranscriptItem = {
-      semester: "Test Semester",
-      code: "TEST101",
-      name: "Test Course",
-      credits: "3",
-      grade: "--",
-    };
-    setTranscript((prev) => [...prev, testCourse]);
-    console.log("Added test course, should show save button now");
   };
 
   // Get transcript data up to the selected semester
@@ -997,13 +945,6 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          {/* Temporary test button */}
-          <button
-            onClick={testAddChange}
-            className="px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
-          >
-            Test Change
-          </button>
           {user?.imageUrl ? (
             <img
               src={user.imageUrl}
@@ -1105,11 +1046,14 @@ export default function Home() {
                   </>
                 ) : activeTab === "calendar" ? (
                   <LessonCalendar
-                    lessons={lessonsData}
+                    lessons={[]}
                     selectedLessons={selectedLessons}
                     onLessonSelect={handleLessonSelect}
                     onLessonDeselect={handleLessonDeselect}
+                    onLessonClick={handleLessonClick}
                     courseCode=""
+                    userCourses={transcript}
+                    selectedPlan={selectedPlan}
                   />
                 ) : (
                   <JsonPreview data={transcript} title="Transcript JSON Data" />
