@@ -13,7 +13,7 @@
     "@types/multer": "^2.0.0",
     "fs": "^0.0.1-security",
     "multer": "^2.0.2",
-    "next": "15.4.5",
+    "next": "15.4.10",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
